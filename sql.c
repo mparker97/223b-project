@@ -55,8 +55,59 @@ const char* QUERY_INSERT_NAMED_RANGE[] = {
 	"UPDATE Range SET Range.init = TRUE WHERE Range.RangeId = ?" // use rangeId
 };
 
-// TODO: This one's wrong
-const char* QUERY_RESIZE_FILE = "UPDATE Offset SET Base = ?, Size = ? WHERE OffsetId = ?"; // Base, Size, OffsetId
+const char* QUERY_RESIZE_FILE[] = {
+	/*
+		When range compenent 0 (A,B) is updated through edit,
+			A remains and B can be changed to anywhere from 1 after A to the end of the file.
+		How the Base, Size, and Conflict for separate component 1 (C,D) are affected depends on the case.
+		If there is a conflict, component 1 will be changed to maximize its reach,
+			allowing users the ability to correct this manually on the next edit
+		Case 0: Base1 >= Base0 + Size0
+			Simplified for If: Base1 >= Base0 + Size0
+		.......A-------B.......
+		.................C---D.
+		Base1 += change
+		
+		Case 1: Base1 >= Base0 AND Base1 < Base0 + Size0 AND Base1 + Size1 > Base0 + Size0
+			Simplified for If: Base1 >= Base0 AND Base1 + Size1 > Base0 + Size0
+		.......A-------B.......
+		............C----D.....
+		Conflict = True
+		Base1 = Base0
+		Size1 += MAX(0, change)
+		
+		Case 2: Base1 >= Base0 AND Base1 + Size1 <= Base0 + Size0
+			Simplified for If: Base1 >= Base0
+		.......A-------B.......
+		.........C---D.........
+		Conflict = True
+		Base1 = Base0
+		Size1 = Size0 // BAD!!!
+		
+		Case 3: Base1 < Base0 AND Base1 + Size1 > Base0 + Size0
+			Simplified for If: Base1 + Size1 > Base0 + Size0
+		.......A-------B.......
+		......C---------D......
+		Size1 += change
+		
+		Case 4: Base1 < Base0 AND Base1 + Size1 > Base0 AND Base1 + Size1 <= Base0 + Size0
+			Simplified for If: Base1 + Size1 > Base0
+		.......A-------B.......
+		.....C----D............
+		Conflict = True
+		Size1 += MAX(0, change)
+		
+		Case 5: Base1 + Size1 < Base0
+			Simplified for If: Else
+		.......A-------B.......
+		.C---D.................
+		(Do nothing)
+		
+	*/
+	// TODO
+	"UPDATE Offset SET Base = Base + ? WHERE FileId = ? AND Base >= ?"; // , FileId, Base
+	"UPDATE Offset SET Size = Size + ? WHERE FileId = ? AND Base >= ?"; // , FileId, 
+}
 
 MYSQL mysql;
 

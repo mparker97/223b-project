@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include "common.h"
 #include "range.h"
+#define _GNU_SOURCE
 
 #define CP_BYTES_BUF_SZ 4096
 
@@ -36,30 +37,36 @@ void cp_bytes(int dst_fd, int src_fd, size_t sz){
 	}
 }
 
-char* swap_file_name(char* f_path){
-	char* s, *ret;
-	int n;
+char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute
+	char* ret, *s;
 	s = strrchr(f_path, '/');
-	if (!s)
-		s = f_path;
-	else
-		s++;
-	n = strlen(s);
-	if (!(ret = malloc(n + 5))){
+	if (!(ret = malloc(strlen(src_dir) + strlen(s) + 5))){
 		return NULL;
 	}
-	memcpy(ret, s, n);
-	memcpy(ret + n, ".swp", 5);
+	sprintf(ret, "%s%s.swp", src_dir, s);
 	return ret;
 }
 
-int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle){
+void unlink_by_fd(int fd){
+	char buf[32];
+	char* path;
+    snprintf(buf, 32, "/proc/self/fd/%d", fd);
+	if (!(path = realpath(buf, NULL))){
+		fprintf(stderr, "realpath failed on %s\n", buf);
+		err(1);
+	}
+    unlink(path);
+	free(path);
+}
+
+int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle){ // swp_dir is absolute
 	int swp_fd, f_fd, i;
 	char* s;
 	size_t src_pos = 0;
 	struct stat src_stat;
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
 	struct it_node* p_itn;
+	char path[32];
 	f_fd = open(f_path, ORDWR);
 	if (f_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", f_path);
@@ -71,7 +78,7 @@ int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle)
 		close(f_fd);
 		err(1);
 	}
-	if (!(s = swap_file_name(f_path))){
+	if (!(s = swap_file_path(swp_dir, f_path))){
 		fprintf(stderr, "malloc failed\n");
 		err(1);
 	}
@@ -86,7 +93,8 @@ int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle)
 	}
 	cp_bytes(swp_fd, f_fd, src_stat.st_size - pos);
 	close(f_fd);
-	linkat(swp_fd, NULL, swp_fd, s, AT_EMPTY_PATH);
+    snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
+    linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
 	free(s);
 	return swp_fd;
 }
@@ -108,7 +116,9 @@ void push_swap_file(int swp_fd, char* f_path, struct it_head* h, char* oracle){
 		if (!strncmp(buf, oracle[0], oracle_len[0])){
 			// missing oracle
 		}
+		
 		// after opening oracle
+		
 		prev_j = -1;
 		for (;;){
 			read(f_fd, buf, ORACLE_LEN_MAX + 1);
@@ -129,6 +139,7 @@ void push_swap_file(int swp_fd, char* f_path, struct it_head* h, char* oracle){
 			}
 		}
 	}
+	// unlink_by_fd(swp_fd); // to remove swap file
 	//close(swp_fd);
 	close(f_fd):
 }
@@ -137,7 +148,7 @@ void exec_editor(char* f_path){
 	char* tmp;
 	int f = fork();
 	if (f == 0){
-		// squeeze file between exe and args
+		// squeeze in file between exe and args
 		p_exe_path[-1] = p_exe_path[0];
 		p_exe_path[0] = f_path;
 		execvp(p_exe_path[-1], &p_exe_path[-1]);
