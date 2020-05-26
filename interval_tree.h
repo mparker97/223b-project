@@ -2,13 +2,6 @@
 #define INTERVAL_TREE_H
 #include "common.h"
 
-#define it_node_mask_bits 2
-#define it_node_mask_on(x, m) ((x) | ((m) << (BITS_PER_BYTE * sizeof(unsigned long) - it_node_mask_bits)))
-#define it_node_mask_off(itn) (((itn)->id >> (BITS_PER_BYTE * sizeof(unsigned long) - it_node_mask_bits)) & ((1UL << it_node_mask_bits) - 1))
-#define IT_NODE_NORMAL 0
-#define IT_NODE_LINE 1
-#define IT_NODE_STRING 2
-
 #define it_foreach_interval(it, i, itn) \
 	for ()
 

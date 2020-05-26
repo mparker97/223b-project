@@ -9,6 +9,7 @@
 #define freec(x) do{free(x); x = NULL;} while (0)
 #define closec(x) do{close(x); x = 0;} while (0)
 
+#define ID_NONE (unsigned long)(-1)
 #define VERBOSITY_NORMAL 0
 #define VERBOSITY_VERBOSE 1
 #define VERBOSITY_QUIET 2
@@ -61,7 +62,7 @@ int substrn(const char* str, char* src, int len){ // find a leading portion of s
 
 #define A_LIST_INIT_LEN 4
 
-struct a_list{
+struct a_list{ // "amortized" list (contiguous array); initial size of A_LIST_INIT_LEN, doubles automatically when filled
 	void* ls;
 	int sz;
 };

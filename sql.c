@@ -16,6 +16,7 @@
 #define TXN_COMMIT fail_check(!mysql_real_query(mysql, "COMMIT", 6))
 #define TXN_ROLLBACK mysql_real_query(mysql, "ROLLBACK", 8)
 
+// binding, buffer type, buffer, buffer length, length of data in buffer (in) or output (out, non-fixed type), is null, is unsigned, error
 #define mysql_bind_init(bind, a, b, c, d, e, f, g) \
 	do { \
 		(bind).buffer_type = (a); \
@@ -57,6 +58,7 @@ const char* QUERY_INSERT_NAMED_RANGE[] = {
 
 const char* QUERY_RESIZE_FILE[] = {
 	/*
+		One transaction per file
 		When range compenent 0 (A,B) is updated through edit,
 			A remains and B can be changed to anywhere from 1 after A to the end of the file.
 		How the Base, Size, and Conflict for separate component 1 (C,D) are affected depends on the case.
@@ -104,9 +106,26 @@ const char* QUERY_RESIZE_FILE[] = {
 		(Do nothing)
 		
 	*/
-	// TODO
-	"UPDATE Offset SET Base = Base + ? WHERE FileId = ? AND Base >= ?"; // , FileId, Base
-	"UPDATE Offset SET Size = Size + ? WHERE FileId = ? AND Base >= ?"; // , FileId, 
+	"SELECT OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId
+	// for each offset in this file for the range {
+		"SELECT Base FROM Offset WHERE OffsetId = ?", // get base (old_size shouldn't change): offsetId
+		// if change != 0 {
+			"WITH change AS ? \
+			UPDATE Offset SET Base = CASE \
+				WHEN OffsetId != ? AND Base >= ? THEN Base + ? \
+				ELSE Base \
+			END, Size = CASE \
+				WHEN Base <= ? AND Base + Size >= ? THEN Size + ?\
+				ELSE Size \
+			END \
+			WHERE FileId = ?", // Case 0, Case 3: change, offsetId, base + new_size, base, base + old_size, fileId
+		// }
+		"WITH B AS ?, S AS ? \
+		UPDATE Offset SET Conflict = TRUE WHERE FileId = ? AND \
+		(B >= Base AND (B + S <= Base + Size OR B < Base + Size)) OR \
+		(B < Base AND B + S > Base AND B + S <= Base + Size)" // rest: base, new_size, fileId
+		"UPDATE Offset SET Conflict = FALSE WHERE OffsetId = ?" // clear conflict of editted range: offsetId
+	// }
 }
 
 MYSQL mysql;
@@ -182,12 +201,13 @@ struct range* query_select_named_range(char* name){ // free return value
 							if (succ == MYSQL_NO_DATA){
 								break;
 							}
-							if (!strncmp(old_buf, buf, len){
+							if (!strncmp(old_buf, buf, len){ // different file; add it // TODO: replace with range_add_new_file?
 								memcpy(old_buf, buf, len);
 								oldbuf[len + 1] = 0;
-								i = range_add_file(r, old_buf, fileId);
+								i = range_add_file(r, old_buf, fileId, /* TODO: Where to store range type? */);
 								fail_check(!i);
 							}
+							// TODO: Conflict
 							if (!it_insert(&r->files[i].it, base, size, offsetId)){
 								goto fail;
 							}
@@ -303,26 +323,54 @@ pass:
 }
 
 int query_resize_file(struct range_file* f){
-	#define NUM_BIND 7
+	#define NUM_STMT 5
+	#define NUM_BIND 6
 	int ret = 0, i;
-	MYSQL_STMT* stmt;
+	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn, itn;
+	unsigned long change, bns, bos, fileId;
+	int succ;
 	bool error;
 	
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
-	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &itn.offsetId, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
-	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
-	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.size, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Size
+	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &change, sizeof(size_t), NULL, (bool*)0, true, &error); // change
+	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.offsetId, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &bns, sizeof(size_t), NULL, (bool*)0, true, &error); // base + new_size
+	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // base
+	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &bos, sizeof(size_t), NULL, (bool*)0, true, &error); // base + old_size, new_size
+	mysql_bind_init(bind[5], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
 	
-	memset(stmt, 0, sizeof(MYSQL_STMT*));
-	fail_check(pps(stmt, QUERY_RESIZE_FILE[0], bind, NULL));
+	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
+	fail_check(
+		pps(stmt, QUERY_RESIZE_FILE[0], &bind[5], NULL) ||
+		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], &bind[3]) ||
+		pps(&stmt[2], QUERY_RESIZE_FILE[2], &bind[0], NULL) ||
+		pps(&stmt[3], QUERY_RESIZE_FILE[3], &bind[3], NULL) ||
+		pps(&stmt[4], QUERY_RESIZE_FILE[4], &bind[1], NULL)
+	);
 	
 	TXN_START;
 	
-	it_foreach_interval(&f->it, i, p_itn){
+	fail_check(!mysql_stmt_execute(stmt[0]));
+	it_foreach_interval(&f->it, i, p_itn){ // TODO: write to file at the same time? Should definitely be done w/i transaction
 		memcpy(&itn, p_itn, sizeof(struct it_node));
-		fail_check(!mysql_stmt_execute(stmt));
+		fail_check(!mysql_stmt_execute(stmt[1]));
+		succ = mysql_stmt_fetch(stmt[1]);
+		fail_check(succ == 1);
+		if (succ == MYSQL_NO_DATA){
+			fprintf(stderr, "Failed to get base for offset %d\n", i);
+			goto fail;
+		}
+		// TODO: fill change
+		if (!change){
+			bns = itn.base + itn.size;
+			// TODO: fill bos (need old_size)
+			fail_check(!mysql_stmt_execute(stmt[2]));
+		}
+		bos = itn.size;
+		fail_check(!mysql_stmt_execute(stmt[3]));
+		fail_check(!mysql_stmt_execute(stmt[4]));
 	}
 	
 	TXN_COMMIT;
@@ -330,13 +378,17 @@ int query_resize_file(struct range_file* f){
 fail:
 	TXN_ROLLBACK;
 	ret = -1;
-	if (mysql_stmt_error(stmt)){
-		fprintf(stderr, "%s\n", mysql_stmt_error(stmt));
-		break;
+	for (i = 0; i < NUM_STMT; i++){
+		if (mysql_stmt_error(stmt[i])){
+			fprintf(stderr, "%s\n", mysql_stmt_error(stmt[i]));
+			break;
+		}
 	}
 pass:
-	if (stmt)
-		mysql_stmt_close(stmt);
+	for (i = 0; i < NUM_STMT; i++)
+		if (stmt[i])
+			mysql_stmt_close(stmt[i]);
 	return ret;
 	#undef NUM_BIND
+	#undef NUM_STMT
 }

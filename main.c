@@ -84,6 +84,7 @@ int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle)
 	}
 	
 	fstat(f_fd, &src_stat);
+	// TODO: mode
 	it_foreach_interval(h, i, p_itn){
 		cp_bytes(swp_fd, f_fd, p_itn->base - src_pos);
 		write(swp_fd, oracle[0], oracle_len[0]);
@@ -168,7 +169,7 @@ void exec_editor(char* f_path){
 void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_mode){
 	*m = IT_NODE_NORMAL;
 	switch(r_mode){
-		case 's':
+		case RANGE_FILE_MODE_STRING:
 			*m = IT_NODE_STRING;
 			if ((str = strtok(str, ","))){
 				*base = (size_t)str;
@@ -178,9 +179,9 @@ void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_
 				}
 			}
 			break;
-		case 'l':
+		case RANGE_FILE_MODE_LINE:
 			*m = IT_NODE_LINE;
-		case 'b':
+		case RANGE_FILE_MODE_NORMAL:
 			*base = atol(str);
 			if (str = strchr(str, ',')){
 				if (str[1]){
@@ -203,11 +204,15 @@ void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_
 	err(1);
 }
 
+int r_mode_ok(char r_mode){
+	return r_mode == RANGE_FILE_MODE_NORMAL || r_mode == RANGE_FILE_MODE_LINE || r_mode == RANGE_FILE_MODE_STRING;
+}
+
 void opts1(int argc, char* argv[]){
-	int i = -1, j;
+	int i = -1, j, r_mode;
 	unsigned long m;
 	size_t base, size;
-	char c, r_mode;
+	char c;
 	opts1_m = malloc(argc * sizeof(int));
 	if (!opts1_m){
 		fprintf(stderr, "Too many arguments\n");
@@ -228,10 +233,20 @@ void opts1(int argc, char* argv[]){
 						err(1);
 					}
 				}
+				if (!(r_mode = r_mode_to_num(optarg[0]))){
+					fprintf("Invalid range mode '%c'\n", optarg[0]);
+					err(1);
+				}
 				if (i < 0) // came from range option; clear file set
 					opts1_m[0] = -1;
 				for (optind--; optind < argc && argv[optind][0] != '-'; optind++){
-					if ((j = range_add_new_file(input_range, argv[optind], ID_NONE)) < 0){
+					j = range_add_new_file(input_range, argv[optind], ID_NONE, r_mode);
+					if (j <= -2){
+						fprintf(stderr, "file %s already has a different range mode '%c'\n", argv[optind], -j);
+						err(1);
+					}
+					else if (j < 0){
+						fprintf(stderr, "failed to add file %s\n", argv[optind]);
 						err(1);
 					}
 					for (i = 0; opts1_m[i] >= 0; i++){
@@ -249,11 +264,10 @@ void opts1(int argc, char* argv[]){
 				}
 				break;
 			case 'r': // [r]anges
-				r_mode = optarg[0];
 				for (; optind < argc && argv[optind][0] != '-'; optind++){
 					get_range(&base, &size, &m, argv[optind], r_mode);
 					for (i = 0; opts1_m[i] >= 0; i++){
-						if (!it_insert(&input_range->files[opts1_m[i]].it, base, size, it_mask_on(ID_NONE, m))){
+						if (!it_insert(&input_range->files[opts1_m[i]].it, base, size)){
 							err(1);
 						}
 					}
