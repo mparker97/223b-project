@@ -40,11 +40,10 @@ void print(const char* a, const char* b, ...){
 	va_end(args);
 }
 
-int substrn(const char* str, char* src, int len){ // find a leading portion of str (nonzero length) in src (length len); return index of start
-	int i, j;
-	int s = strlen(str);
-	for (i = j = 0; i < len; i++){
-		if (j == s){
+ssize_t substrn(const char* str, size_t str_len, char* src, size_t src_len){ // find a leading portion of str (nonzero length str_len) in src (length src_len); return index of start
+	size_t i, j;
+	for (i = j = 0; i < src_len; i++){
+		if (j == str_len){
 			break;
 		}
 		if (src[i] == str[j]){
@@ -58,6 +57,12 @@ int substrn(const char* str, char* src, int len){ // find a leading portion of s
 		return -1;
 	else
 		return i - j;
+}
+
+size_t string_char_count(char* s, char c){
+	size_t ret = 0;
+	for (s = strchr(s, c); s != NULL; s = strchr(s + 1, c), ret++);
+	return ret;
 }
 
 #define A_LIST_INIT_LEN 4
