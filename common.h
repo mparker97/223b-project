@@ -1,6 +1,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 #include <string.h>
+#include <sys/types.h>
 
 #define BITS_PER_BYTE 8
 #define PATH_MAX 4095
@@ -10,15 +11,12 @@
 #define closec(x) do{close(x); x = 0;} while (0)
 
 #define ID_NONE (unsigned long)(-1)
-#define VERBOSITY_NORMAL 0
-#define VERBOSITY_VERBOSE 1
-#define VERBOSITY_QUIET 2
 
 int* opts1_m = NULL;
 char** p_exe_path = NULL;
 char* file_path = NULL;
 struct range* input_range;
-int verbosity = VERBOSITY_NORMAL;
+char verbosity = 0;
 int read_from_stdin = 0;
 char mode = 0;
 
@@ -29,11 +27,11 @@ void err(int e){
 
 void print(const char* a, const char* b, ...){
 	va_list args;
-	if (verbosity == VERBOSITY_NORMAL){
+	if (verbosity == 0){
 		va_start(args, a);
 		vprintf(stdout, a, args);
 	}
-	else if (verbosity == VERBOSITY_VERBOSE){
+	else if (verbosity == 'v'){
 		va_start(args, b);
 		vprintf(stdout, b, args);
 	}

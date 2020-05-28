@@ -3,12 +3,19 @@
 #include "common.h"
 
 #define it_foreach_interval(it, i, itn) \
-	for ()
+	for (;;)
 
+// line numbers are 1-indexed
 struct it_node{
 	unsigned long id;
-	size_t base;
-	size_t size;
+	//union{
+		size_t base;
+	//	char* r_base;
+	//};
+	//union{
+		size_t size;
+	//	char* r_size;
+	//};
 };
 
 struct it_head{
