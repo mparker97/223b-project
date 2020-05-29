@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <fnctl.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,7 +67,7 @@ int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle)
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
 	struct it_node* p_itn;
 	char path[32];
-	f_fd = open(f_path, ORDWR);
+	f_fd = open(f_path, O_RDWR);
 	if (f_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", f_path);
 		err(1);
