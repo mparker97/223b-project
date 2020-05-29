@@ -2,24 +2,17 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include "common.h"
 #include "range.h"
+//#include "_regex.h"
+#include "help.h"
+
 #define _GNU_SOURCE
-
 #define CP_BYTES_BUF_SZ 4096
-
-void print_usage(char* s){
-	fprintf(stderr, "USAGE: %s MODE [OPTIONS] EXE_PATH [EXE_OPTIONS]\n", s);
-}
-
-void print_help(char* s){
-	print_usage(s);
-	// TODO
-	err(0);
-}
 
 void cp_bytes(int dst_fd, int src_fd, size_t sz){
 	char buf[CP_BYTES_BUF_SZ];
@@ -35,6 +28,25 @@ void cp_bytes(int dst_fd, int src_fd, size_t sz){
 		}
 		write(dst_fd, buf, r);
 	}
+}
+
+void cp_lines(int dst_fd, FILE* src_f, size_t sz){
+	char* line = NULL;
+	size_t n;
+	ssize_t gl;
+	for (; line_count < p_itn->base; line_count++){
+		gl = getline(&line, &n, src_f);
+		if (gl < 0){
+			fprintf(stderr, "Failed to read from file %d\n", fileno(src_f));
+			closec(dst_fd);
+			closec(fileno(src_f));
+			free(line);
+			err(1);
+		}
+		write(dst_fd, line, gl);
+	}
+	if (line)
+		free(line);
 }
 
 char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute
@@ -59,39 +71,86 @@ void unlink_by_fd(int fd){
 	free(path);
 }
 
-int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle){ // swp_dir is absolute
-	int swp_fd, f_fd, i;
-	char* s;
-	size_t src_pos = 0;
-	struct stat src_stat;
-	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
+ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off, size_t* count_lines){ // search file identified by descriptor fd for string s of length s_len, starting at offset off
+	char* line, *str;
+	size_t ret = off, n;
+	ssize_t s;
+	FILE* f = fdopen(fd, "r");
+	if (f){
+		fseek(f, off, SEEK_SET);
+		for (line = NULL; (s = getline(&line, &n, f)) >= 0; ret += s, (*count_lines)++){
+			str = strstr(line, oracle);
+			if (str){
+				return ret + (str - line);
+			}
+		}
+		free(line);
+	}
+	return -1;
+}
+
+void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
 	struct it_node* p_itn;
-	char path[32];
-	f_fd = open(f_path, O_RDWR);
-	if (f_fd < 0){
-		fprintf(stderr, "Failed to open %s\n", f_path);
-		err(1);
-	}
-	swp_fd = open(swp_dir, O_RDWR | O_TMPFILE, S_IRWXU);
-	if (swp_fd < 0){
-		fprintf("failed to create swap file for %s\n", f_path);
-		close(f_fd);
-		err(1);
-	}
-	if (!(s = swap_file_path(swp_dir, f_path))){
-		fprintf(stderr, "malloc failed\n");
-		err(1);
-	}
-	
-	fstat(f_fd, &src_stat);
-	it_foreach_interval(h, i, p_itn){
+	size_t src_pos = 0;
+	int i;
+	it_foreach_interval(&rf->it, i, p_itn){
 		cp_bytes(swp_fd, f_fd, p_itn->base - src_pos);
 		write(swp_fd, oracle[0], oracle_len[0]);
 		cp_bytes(swp_fd, f_fd, p_itn->sz);
 		write(swp_fd, oracle[1], oracle_len[1]);
 		src_pos = p_itn->base + p_itn->sz;
 	}
-	cp_bytes(swp_fd, f_fd, src_stat.st_size - pos);
+}
+
+int add_oracle_lines(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
+	struct it_node* p_itn;
+	size_t src_pos = 0, line_count = 1;
+	FILE* f;
+	int i;
+	if (f = fdopen(f_fd, "r")){
+		it_foreach_interval(&rf->it, i, p_itn){
+			cp_lines(swp_fd, f, p_itn->base - line_count);
+			write(swp_fd, oracle[0], oracle_len[0]);
+			line_count += p_itn->size - p_itn->base;
+			cp_lines(swp_fd, f, line_count - p_itn->base);
+			write(swp_fd, oracle[1], oracle_len[1]);
+		}
+	}
+}
+
+int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_dir is absolute // oracle with \n at end
+	int swp_fd, f_fd;
+	char* s;
+	struct stat f_stat;
+	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
+	char path[32];
+
+	f_fd = open(rf->file_path, O_RDWR);
+	if (f_fd < 0){
+		fprintf(stderr, "Failed to open %s\n", rf->file_path);
+		err(1);
+	}
+	swp_fd = open(swp_dir, O_RDWR | O_TMPFILE, S_IRWXU);
+	if (swp_fd < 0){
+		fprintf("failed to create swap file for %s\n", rf->file_path);
+		close(f_fd);
+		err(1);
+	}
+	if (!(s = swap_file_path(swp_dir, rf->file_path))){
+		fprintf(stderr, "malloc failed\n");
+		err(1);
+	}
+	
+	fstat(f_fd, &f_stat);
+	if (rf->mode == RANGE_FILE_MODE_NORMAL){
+		oracle_len[0]--;
+		oracle_len[1]--;
+		add_oracle_bytes(swp_fd, f_fd, rf, oracle, oracle_len);
+	}
+	else{ // RANGE_FILE_MODE_LINE
+		add_oracle_lines(swp_fd, f_fd, rf, oracle, oracle_len);
+	}
+	cp_bytes(swp_fd, f_fd, f_stat.st_size - lseek(f_fd, 0, SEEK_SET));
 	close(f_fd);
     snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
     linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
@@ -99,49 +158,46 @@ int pull_swap_file(char* swp_dir, char* f_path, struct it_head* h, char* oracle)
 	return swp_fd;
 }
 
-void push_swap_file(int swp_fd, char* f_path, struct it_head* h, char* oracle){
-	int f_fd, i, j, prev_j;
-	struct stat src_stat;
+void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle w/o \n
+	int f_fd, i;
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
 	struct it_node* p_itn;
-	char buf[ORACLE_LEN_MAX + 1];
-	f_fd = open(f_path, O_RDWR);
+	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
+	size_t nl_count = 1;
+	f_fd = open(rf->file_path, O_RDWR);
 	if (f_fd < 0){
-		fprintf(stderr, "Failed to open %s\n", f_path);
+		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		err(1);
 	}
-	it_foreach_interval(h, i, p_itn){
-		lseek(f_fd, p_itn->base, SEEK_SET);
-		read(f_fd, buf, oracle_len[0]);
-		if (!strncmp(buf, oracle[0], oracle_len[0])){
-			// missing oracle
+	it_foreach_interval(&rf->it, i, p_itn){
+		o_open = oracle_search(swp_fd, oracle[0], oracle_len[0], o_close + oracle_len[0], &nl_count);
+		if (o_open < 0){
+			fprintf(stderr, "Failed to find opening oracle for range %d\n", i);
+			goto rexec;
 		}
-		
-		// after opening oracle
-		
-		prev_j = -1;
-		for (;;){
-			read(f_fd, buf, ORACLE_LEN_MAX + 1);
-			if (prev_j){
-				if (!strncmp(buf, oracle[2] + prev_j, oracle_len[2] - prev_j)){
-					// TODO: found ending oracle at SEEK_CUR - (ORACLE_LEN_MAX + 1) - prev_j
-				}
-			}
-			j = substrn(oracle[2], buf, ORACLE_LEN_MAX + 1);
-			if (j >= 0){
-				j = (ORACLE_LEN_MAX + 1) - j;
-				if (j < oracle_len[2]){
-					prev_j = j;
-				}
-				else{
-					// TODO: found ending oracle at SEEK_CUR - j
-				}
-			}
+		/*else if (o_open != p_itn->base + total_change){
+			fprintf(stderr, "warning: opening oracle for range %d moved by %ld %s\n",
+				i, (p_itn->base + total_change) - o_open, (rf->mode == RANGE_FILE_MODE_NORMAL)? "bytes" : "lines");
+		}*/
+		o_close = oracle_search(swp_fd, oracle[1], oracle_len[1], o_open + oracle_len[0], &nl_count);
+		if (o_close < 0){
+			fprintf(stderr, "Failed to find closing oracle for range %d\n", i);
+			goto rexec;
+		}
+		//total_change += o_close - (p_itn->base + p_itn->size);
+		// TODO: must keep old size for resize file query
+		if (rf->mode == RANGE_FILE_MODE_LINE){
+			// TODO: new size = nl_count - 2 * i - 1;
+		}
+		else { // RANGE_FILE_MODE_NORMAL
+			// TODO: new size = o_close - o_open - oracle_len[0];
 		}
 	}
 	// unlink_by_fd(swp_fd); // to remove swap file
 	//close(swp_fd);
-	close(f_fd):
+	close(f_fd);
+rexec:
+	exec_editor(rf->file_path); // TODO: maybe move this to caller?
 }
 
 void exec_editor(char* f_path){
@@ -168,25 +224,33 @@ void exec_editor(char* f_path){
 void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_mode){
 	*m = IT_NODE_NORMAL;
 	switch(r_mode){
-		case 's':
+		/*case RANGE_FILE_MODE_STRING:
 			*m = IT_NODE_STRING;
-			if ((str = strtok(str, ","))){
-				*base = (size_t)str;
-				if ((str = strtok(NULL, ","))){
-					*bound = (size_t)str;
-					return;
+			if (regex_test(str + 1)){
+				err(1);
+			}
+			*base = (size_t)(str + 1);
+			if (str = pull_string(str)){
+				if (str[1] == ','){
+					if (regex_test(str + 3)){
+						err(1);
+					}
+					*bound = (size_t)(str + 3);
+					if (pull_string(str + 2)){
+						return;
+					}
 				}
 			}
-			break;
-		case 'l':
+			break;*/
+		case RANGE_FILE_MODE_LINE:
 			*m = IT_NODE_LINE;
-		case 'b':
+		case RANGE_FILE_MODE_NORMAL:
 			*base = atol(str);
 			if (str = strchr(str, ',')){
 				if (str[1]){
 					*bound = atol(str + 1);
-					if (*bound < *base){
-						fprintf(stderr, "Invalid range: base %lu, bound %lu\n", *base, *bound);
+					if (*bound <= *base){
+						fprintf(stderr, "Invalid region: base %lu, bound %lu\n", *base, *bound);
 						err(1);
 					}
 					*bound -= *base; // size
@@ -199,8 +263,12 @@ void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_
 			fprintf(stderr, "Invalid option %c\n", r_mode);
 			err(1);
 	}
-	fprintf(stderr, "Malformed range\n");
+	fprintf(stderr, "Malformed region\n");
 	err(1);
+}
+
+int r_mode_ok(char r_mode){
+	return r_mode == RANGE_FILE_MODE_NORMAL || r_mode == RANGE_FILE_MODE_LINE;// || r_mode == RANGE_FILE_MODE_STRING;
 }
 
 void opts1(int argc, char* argv[]){
@@ -213,25 +281,43 @@ void opts1(int argc, char* argv[]){
 		fprintf(stderr, "Too many arguments\n");
 		err(1);
 	}
-	while ((c = getopt(argc, argv, "+ef:qr:sv")) != -1){
+	while ((c = getopt(argc, argv, "+e:f:qr:sv")) != -1){
 		switch (c){
 			case 'v': // [v]erbose
-				verbosity = VERBOSE;
-				break;
 			case 'q': // [q]uiet
-				verbosity = QUIET;
+				if (verbosity != 0 && verbosity != c){
+					fprintf(stderr, "Incompatible options: %c and %c\n", c, verbosity);
+					err(1);
+				}
+				verbosity = c;
 				break;
 			case 'f': // [f]iles
 				if (mode == 'r' || mode == 'w' || mode == 'n'){
-					if (optind < argc && argv[optind][0] != '-'){
+					if (optind < argc && argv[optind][0] != '-'){ // argument after the argument for '-f' is NOT another option argument: this implies more than one argument for '-f'
 						fprintf(stderr, "rwn mode may only have one file\n");
 						err(1);
 					}
 				}
-				if (i < 0) // came from range option; clear file set
+				if (i < 0){ // came from range option; clear file set
 					opts1_m[0] = -1;
+				}
+				else if (r_mode != optarg[0]){
+					fprintf(stderr, "files must have the same range mode (%c conflicts with %c)\n", r_mode, optarg[0]);
+					err(1);
+				}
+				r_mode = optarg[0];
+				if (!r_mode_ok(r_mode)){
+					fprintf("Invalid range mode '%c'\n", optarg[0]);
+					err(1);
+				}
 				for (optind--; optind < argc && argv[optind][0] != '-'; optind++){
-					if ((j = range_add_new_file(input_range, argv[optind], ID_NONE)) < 0){
+					j = range_add_new_file(input_range, argv[optind], ID_NONE, r_mode);
+					if (j <= -2){
+						fprintf(stderr, "file %s already has a different range mode '%c'\n", argv[optind], -j);
+						err(1);
+					}
+					else if (j < 0){
+						fprintf(stderr, "failed to add file %s\n", argv[optind]);
 						err(1);
 					}
 					for (i = 0; opts1_m[i] >= 0; i++){
@@ -249,11 +335,10 @@ void opts1(int argc, char* argv[]){
 				}
 				break;
 			case 'r': // [r]anges
-				r_mode = optarg[0];
 				for (; optind < argc && argv[optind][0] != '-'; optind++){
-					get_range(&base, &size, &m, argv[optind], r_mode);
+					get_range(&base, &size, &m, argv[optind], r_mode); // TODO: r_mode comes from -f... may be multiple
 					for (i = 0; opts1_m[i] >= 0; i++){
-						if (!it_insert(&input_range->files[opts1_m[i]].it, base, size, it_mask_on(ID_NONE, m))){
+						if (!it_insert(&input_range->files[opts1_m[i]].it, base, size)){
 							err(1);
 						}
 					}
@@ -296,7 +381,7 @@ void opts0(int argc, char* argv[]){
 		case 'n': // i[n]sert
 		case 'g': // new ran[g]e
 		case 'p': // [p]rint
-			if (mode != 0){
+			if (mode != 0 && mode != c){
 				fprintf(stderr, "Incompatible options: %c and %c\n", c, mode);
 				err(1);
 			}
@@ -306,7 +391,7 @@ void opts0(int argc, char* argv[]){
 			
 			break;
 		case 'i': // [i]nteractive; shell
-			shell(argv[0]);
+			//shell(argv[0]);
 			err(0);
 			break;
 		case '?':

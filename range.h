@@ -3,12 +3,15 @@
 #include "common.h"
 #include "interval_tree.h"
 
-#define ID_NONE (unsigned long)(-1)
+#define RANGE_FILE_MODE_NORMAL 'b' // bytes
+#define RANGE_FILE_MODE_LINE 'l'
+#define RANGE_FILE_MODE_STRING 's'
 
 struct range_file{
 	struct it_head it;
 	char* file_path;
 	unsigned long id;
+	char mode;
 };
 
 struct range{
@@ -49,7 +52,7 @@ void range_deinit(struct range* r){
 	}
 }
 
-int range_add_file(struct range* r, char* file_path, unsigned long id){
+int range_add_file(struct range* r, char* file_path, unsigned long id, char mode){
 	struct range_file* rf;
 	char* str;
 	if (!(str = strdup(file_path))){
@@ -59,6 +62,7 @@ int range_add_file(struct range* r, char* file_path, unsigned long id){
 	if (rf){
 		rf->name = str;
 		rf->id = id;
+		rf->mode = mode;
 		return r->num_files - 1;
 	}
 fail:
@@ -67,14 +71,16 @@ fail:
 	return -1;
 }
 
-int range_add_new_file(struct range* r, char* file_path, unsigned long id){
+int range_add_new_file(struct range* r, char* file_path, unsigned long id, char mode){
 	int i;
 	for (i = 0; i < r->num_files; i++){
 		if (!strcmp(file_path, r->files[i].file_path)){
-			return i;
+			if (r->files[i].mode == mode)
+				return i;
+			return -r->files[i].mode;
 		}
 	}
-	return range_add_file(r, file_path, id);
+	return range_add_file(r, file_path, id, mode);
 }
 
 #endif
