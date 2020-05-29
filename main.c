@@ -30,7 +30,7 @@ void cp_bytes(int dst_fd, int src_fd, size_t sz){
 	}
 }
 
-void cp_lines(int dst_fd, FILE* src_f, size_t sz){
+void cp_lines(int dst_fd, FILE* src_f, size_t line_count){
 	char* line = NULL;
 	size_t n;
 	ssize_t gl;
@@ -39,7 +39,8 @@ void cp_lines(int dst_fd, FILE* src_f, size_t sz){
 		if (gl < 0){
 			fprintf(stderr, "Failed to read from file %d\n", fileno(src_f));
 			closec(dst_fd);
-			closec(fileno(src_f));
+			int src_fd = fileno(src_f);
+			closec(src_fd);
 			free(line);
 			err(1);
 		}
@@ -96,9 +97,9 @@ void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle
 	it_foreach_interval(&rf->it, i, p_itn){
 		cp_bytes(swp_fd, f_fd, p_itn->base - src_pos);
 		write(swp_fd, oracle[0], oracle_len[0]);
-		cp_bytes(swp_fd, f_fd, p_itn->sz);
+		cp_bytes(swp_fd, f_fd, p_itn->size);
 		write(swp_fd, oracle[1], oracle_len[1]);
-		src_pos = p_itn->base + p_itn->sz;
+		src_pos = p_itn->base + p_itn->size;
 	}
 }
 
@@ -130,9 +131,11 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		err(1);
 	}
+	// O_TMPFILE flag is giving a compile error -- it looks like it needs this define:
+	// #define _GNU_SOURCE
 	swp_fd = open(swp_dir, O_RDWR | O_TMPFILE, S_IRWXU);
 	if (swp_fd < 0){
-		fprintf("failed to create swap file for %s\n", rf->file_path);
+		fprintf(stderr, "failed to create swap file for %s\n", rf->file_path);
 		close(f_fd);
 		err(1);
 	}
@@ -156,6 +159,27 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
     linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
 	free(s);
 	return swp_fd;
+}
+
+void exec_editor(char* f_path){
+	char* tmp;
+	int f = fork();
+	if (f == 0){
+		// squeeze in file between exe and args
+		p_exe_path[-1] = p_exe_path[0];
+		p_exe_path[0] = f_path;
+		execvp(p_exe_path[-1], &p_exe_path[-1]);
+		fprintf(stderr, "Failed to run executable %s\n", tmp);
+		err(1);
+	}
+	else if (f > 0){
+		waitpid(f, NULL, 0);
+		// TODO: push changes with each save somehow?
+	}
+	else {
+		fprintf(stderr, "fork failed\n");
+		err(1);
+	}
 }
 
 void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle w/o \n
@@ -198,27 +222,6 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 	close(f_fd);
 rexec:
 	exec_editor(rf->file_path); // TODO: maybe move this to caller?
-}
-
-void exec_editor(char* f_path){
-	char* tmp;
-	int f = fork();
-	if (f == 0){
-		// squeeze in file between exe and args
-		p_exe_path[-1] = p_exe_path[0];
-		p_exe_path[0] = f_path;
-		execvp(p_exe_path[-1], &p_exe_path[-1]);
-		fprintf("Failed to run executable %s\n", tmp);
-		err(1);
-	}
-	else if (f > 0){
-		waitpid(f, NULL, 0);
-		// TODO: push changes with each save somehow?
-	}
-	else {
-		fprintf(stderr, "fork failed\n");
-		err(1);
-	}
 }
 
 void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_mode){
@@ -307,7 +310,7 @@ void opts1(int argc, char* argv[]){
 				}
 				r_mode = optarg[0];
 				if (!r_mode_ok(r_mode)){
-					fprintf("Invalid range mode '%c'\n", optarg[0]);
+					fprintf(stderr, "Invalid range mode '%c'\n", optarg[0]);
 					err(1);
 				}
 				for (optind--; optind < argc && argv[optind][0] != '-'; optind++){

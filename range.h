@@ -26,18 +26,6 @@ struct range{
 	unsigned long id;
 };
 
-int range_init(struct range* r, char* name){
-	if (!(r->name = strdup(name)))
-		goto fail;
-	if (!a_list_init(&r->ls, sizeof(struct range_file)))
-		goto fail;
-	return 0;
-fail:
-	fprintf(stderr, "Failed to initialize range\n");
-	range_deinit(r);
-	return -1;
-}
-
 void range_deinit(struct range* r){
 	int i;
 	r->num_files = 0;
@@ -52,6 +40,18 @@ void range_deinit(struct range* r){
 	}
 }
 
+int range_init(struct range* r, char* name){
+	if (!(r->name = strdup(name)))
+		goto fail;
+	if (!a_list_init(&r->ls, sizeof(struct range_file)))
+		goto fail;
+	return 0;
+fail:
+	fprintf(stderr, "Failed to initialize range\n");
+	range_deinit(r);
+	return -1;
+}
+
 int range_add_file(struct range* r, char* file_path, unsigned long id, char mode){
 	struct range_file* rf;
 	char* str;
@@ -60,7 +60,7 @@ int range_add_file(struct range* r, char* file_path, unsigned long id, char mode
 	}
 	rf = a_list_add(&r->ls, sizeof(struct range_file));
 	if (rf){
-		rf->name = str;
+		rf->file_path = str;
 		rf->id = id;
 		rf->mode = mode;
 		return r->num_files - 1;

@@ -30,7 +30,7 @@ int it_deinit(struct it_head* it){
 	
 }
 
-struct it_node* it_insert(struct it_head* it, size_t base, size_t size, unsigned long id)){
+struct it_node* it_insert(struct it_head* it, size_t base, size_t size, unsigned long id) {
 	
 }
 

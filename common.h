@@ -29,11 +29,11 @@ void print(const char* a, const char* b, ...){
 	va_list args;
 	if (verbosity == 0){
 		va_start(args, a);
-		vprintf(stdout, a, args);
+		vfprintf(stdout, a, args);
 	}
 	else if (verbosity == 'v'){
 		va_start(args, b);
-		vprintf(stdout, b, args);
+		vfprintf(stdout, b, args);
 	}
 	va_end(args);
 }
