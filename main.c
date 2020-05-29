@@ -10,6 +10,7 @@
 #include "range.h"
 //#include "_regex.h"
 #include "help.h"
+#include "zkclient.h"
 
 #define _GNU_SOURCE
 #define CP_BYTES_BUF_SZ 4096
