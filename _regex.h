@@ -1,3 +1,5 @@
+// Scrapped
+#if 0
 #ifndef _REGEX_H
 #define _REGEX_H
 #include <regex.h>
@@ -141,4 +143,5 @@ ssize_t regex_after(int fd, size_t off, char* pat){
 }
 */
 
+#endif
 #endif

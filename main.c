@@ -12,8 +12,18 @@
 #include "help.h"
 #include "zkclient.h"
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #define CP_BYTES_BUF_SZ 4096
+
+int* opts1_m = NULL;
+char** p_exe_path = NULL;
+char* file_path = NULL;
+struct range* input_range = NULL;
+char verbosity = 0;
+int read_from_stdin = 0;
+char mode = 0;
 
 void cp_bytes(int dst_fd, int src_fd, size_t sz){
 	char buf[CP_BYTES_BUF_SZ];
@@ -134,6 +144,7 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 	}
 	// O_TMPFILE flag is giving a compile error -- it looks like it needs this define:
 	// #define _GNU_SOURCE
+		// I've had that there the whole time
 	swp_fd = open(swp_dir, O_RDWR | O_TMPFILE, S_IRWXU);
 	if (swp_fd < 0){
 		fprintf(stderr, "failed to create swap file for %s\n", rf->file_path);

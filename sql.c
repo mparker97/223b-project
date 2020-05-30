@@ -28,7 +28,7 @@
 		(bind).error = (g); \
 	} while (0)
 
-const char* QUERY_SELECT_NAMED_RANGE = "\
+static const char* QUERY_SELECT_NAMED_RANGE = "\
 	SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Size \
 	FROM \
 		((Range INNER JOIN RangeFileJunction ON Range.RangeId = RangeFileJunction.RangeId) \
@@ -37,7 +37,7 @@ const char* QUERY_SELECT_NAMED_RANGE = "\
 	WHERE Range.Name = \"?\" AND Range.Init = TRUE\
 	ORDER BY File.FilePath, Offset.Base";
 
-const char* QUERY_INSERT_NAMED_RANGE[] = {
+static const char* QUERY_INSERT_NAMED_RANGE[] = {
 	"INSERT INTO Range (Name, User, init) VALUES (\"?\", ?, FALSE)", // insert new range name
 	// mysql_insert_id to get rangeId
 	// for each file {
@@ -56,7 +56,7 @@ const char* QUERY_INSERT_NAMED_RANGE[] = {
 	"UPDATE Range SET Range.init = TRUE WHERE Range.RangeId = ?" // use rangeId
 };
 
-const char* QUERY_RESIZE_FILE[] = {
+static const char* QUERY_RESIZE_FILE[] = {
 	/*
 		One transaction per file
 		When range compenent 0 (A,B) is updated through edit,
@@ -126,9 +126,9 @@ const char* QUERY_RESIZE_FILE[] = {
 		(B < Base AND B + S > Base AND B + S <= Base + Size)" // rest: base, new_size, fileId
 		"UPDATE Offset SET Conflict = FALSE WHERE OffsetId = ?" // clear conflict of editted range: offsetId
 	// }
-}
+};
 
-MYSQL mysql;
+static MYSQL mysql;
 
 void sql_init(){
 	/* mysql_init does this

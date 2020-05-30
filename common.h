@@ -12,13 +12,13 @@
 
 #define ID_NONE (unsigned long)(-1)
 
-int* opts1_m = NULL;
-char** p_exe_path = NULL;
-char* file_path = NULL;
-struct range* input_range;
-char verbosity = 0;
-int read_from_stdin = 0;
-char mode = 0;
+extern int* opts1_m;
+extern char** p_exe_path;
+extern char* file_path;
+extern struct range* input_range;
+extern char verbosity;
+extern int read_from_stdin;
+extern char mode;
 
 void err(int e){
 	// TODO: frees
