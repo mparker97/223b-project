@@ -1,5 +1,6 @@
 #ifndef COMMON_H
 #define COMMON_H
+//#define COMPILE_TEST
 #include <string.h>
 #include <sys/types.h>
 
@@ -11,6 +12,9 @@
 #define closec(x) do{close(x); x = 0;} while (0)
 
 #define ID_NONE (unsigned long)(-1)
+
+#define offset_of(t, m) ((size_t)&((t*)0)->m)
+#define container_of(p, t, m) ((t*)((char*)(p) - offset_of(t, m)))
 
 extern int* opts1_m;
 extern char** p_exe_path;
@@ -63,8 +67,20 @@ size_t string_char_count(char* s, char c){
 	return ret;
 }
 
-#define A_LIST_INIT_LEN 4
+struct l_list{ // linked list
+	struct l_list* next;
+};
 
+#define L_LIST_NULL ((struct l_list){.next = NULL})
+#define l_list_foreach(p, t, m) \
+	for (; (p) != NULL; p = (((p)->m).next)? container_of(((p)->m).next, t, m) : NULL)
+
+static inline void l_list_add_after(struct l_list* curr, struct l_list* n){
+	n->next = curr->next;
+	curr->next = n;
+}
+
+#define A_LIST_INIT_LEN 4
 struct a_list{ // "amortized" list (contiguous array); initial size of A_LIST_INIT_LEN, doubles automatically when filled
 	void* ls;
 	int sz;

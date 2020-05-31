@@ -29,7 +29,7 @@
 	} while (0)
 
 static const char* QUERY_SELECT_NAMED_RANGE = "\
-	SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Size \
+	SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Bound \
 	FROM \
 		((Range INNER JOIN RangeFileJunction ON Range.RangeId = RangeFileJunction.RangeId) \
 		INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
@@ -50,7 +50,7 @@ static const char* QUERY_INSERT_NAMED_RANGE[] = {
 		// }
 		"INSERT INTO RangeFileJunction (RangeId, FileId) VALUES (?, ?)", // rangeId, fileId
 		// for each offset {
-			"INSERT INTO Offset (FileId, Base, Size) VALUES (?, ?, ?)", // fileId
+			"INSERT INTO Offset (FileId, Base, Bound) VALUES (?, ?, ?)", // fileId
 		// }
 	// }
 	"UPDATE Range SET Range.init = TRUE WHERE Range.RangeId = ?" // rangeId
@@ -61,45 +61,45 @@ static const char* QUERY_RESIZE_FILE[] = {
 		One transaction per file
 		When range compenent 0 (A,B) is updated through edit,
 			A remains and B can be changed to anywhere from 1 after A to the end of the file.
-		How the Base, Size, and Conflict for separate component 1 (C,D) are affected depends on the case.
+		How the Base, Bound, and Conflict for separate component 1 (C,D) are affected depends on the case.
 		If there is a conflict, component 1 will be changed to maximize its reach,
 			allowing users the ability to correct this manually on the next edit
-		Case 0: Base1 >= Base0 + Size0
-			Simplified for If: Base1 >= Base0 + Size0
+		Case 0: Base1 >= Bound0
+			Simplified for If: Base1 >= Bound0
 		.......A-------B.......
 		.................C---D.
 		Base1 += change
 		
-		Case 1: Base1 >= Base0 AND Base1 < Base0 + Size0 AND Base1 + Size1 > Base0 + Size0
-			Simplified for If: Base1 >= Base0 AND Base1 + Size1 > Base0 + Size0
+		Case 1: Base1 >= Base0 AND Base1 < Bound0 AND Bound1 > Bound0
+			Simplified for If: Base1 >= Base0 AND Bound1 > Bound0
 		.......A-------B.......
 		............C----D.....
 		Conflict = True
 		Base1 = Base0
-		Size1 += MAX(0, change)
+		Bound1 += MAX(0, change)
 		
-		Case 2: Base1 >= Base0 AND Base1 + Size1 <= Base0 + Size0
+		Case 2: Base1 >= Base0 AND Bound1 <= Bound0
 			Simplified for If: Base1 >= Base0
 		.......A-------B.......
 		.........C---D.........
 		Conflict = True
 		Base1 = Base0
-		Size1 = Size0 // BAD!!!
+		Bound1 = Bound0 // BAD!!!
 		
-		Case 3: Base1 < Base0 AND Base1 + Size1 > Base0 + Size0
-			Simplified for If: Base1 + Size1 > Base0 + Size0
+		Case 3: Base1 < Base0 AND Bound1 > Bound0
+			Simplified for If: Bound1 > Bound0
 		.......A-------B.......
 		......C---------D......
-		Size1 += change
+		Bound1 += change
 		
-		Case 4: Base1 < Base0 AND Base1 + Size1 > Base0 AND Base1 + Size1 <= Base0 + Size0
-			Simplified for If: Base1 + Size1 > Base0
+		Case 4: Base1 < Base0 AND Bound1 > Base0 AND Bound1 <= Bound0
+			Simplified for If: Bound1 > Base0
 		.......A-------B.......
 		.....C----D............
 		Conflict = True
-		Size1 += MAX(0, change)
+		Bound1 += MAX(0, change)
 		
-		Case 5: Base1 + Size1 < Base0
+		Case 5: Bound1 < Base0
 			Simplified for If: Else
 		.......A-------B.......
 		.C---D.................
@@ -110,23 +110,23 @@ static const char* QUERY_RESIZE_FILE[] = {
 	"SELECT OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId
 	// for each offset in this file for the range {
 		"WITH oid AS ?, \
-			os AS ?, \
+			ob AS ?, \
 			c AS ? \
 			b AS (SELECT Base FROM Offset WHERE OffsetId = oid), \
 		UPDATE Offset SET \
 			Base = CASE \
-				WHEN OffsetId != oid AND Base >= b + os THEN Base + c \
+				WHEN OffsetId != oid AND Base >= ob THEN Base + c \
 				ELSE Base END, \
-			Size = CASE \
-				WHEN Base <= b AND Base + Size >= b + os THEN Size + c \
-				ELSE Size END, \
+			Bound = CASE \
+				WHEN Base <= b AND Bound >= ob THEN Bound + c \
+				ELSE Bound END, \
 			Conflict = CASE \
 				WHEN OffsetId = oid THEN FALSE \
-				WHEN (b < Base AND b + os < Base + Size AND b + os > Base) \
-					OR (b <= Base AND b + os >= Base + Size) \
-					OR (b > Base AND b < Base + Size AND b + os > Base + Size) THEN TRUE \
+				WHEN (b < Base AND ob < Bound AND ob > Base) \
+					OR (b <= Base AND ob >= Bound) \
+					OR (b > Base AND b < Bound AND ob > Bound) THEN TRUE \
 				ELSE Conflict END \
-		WHERE FileId = ?", // offsetId, change, old_size, fileId
+		WHERE FileId = ?", // offsetId, change, old_bound, fileId
 	// }
 };
 
@@ -177,7 +177,7 @@ struct range* query_select_named_range(char* name){ // free return value
 	char buf[PATH_MAX + 1];
 	char old_buf[PATH_MAX + 1];
 	unsigned long fileId, offsetId;
-	size_t base, size;
+	size_t base, bound;
 	unsigned long len;
 	int succ, i = 0;
 	bool error;
@@ -190,7 +190,7 @@ struct range* query_select_named_range(char* name){ // free return value
 	mysql_bind_init(bind[2], MYSQL_TYPE_STRING, buf, PATH_MAX, &len, (bool*)0, true, &error); // File.FilePath
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
-	mysql_bind_init(bind[5], MYSQL_TYPE_LONGLONG, &size, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Size
+	mysql_bind_init(bind[5], MYSQL_TYPE_LONGLONG, &bound, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Bound
 	
 	if (!pps(&stmt, QUERY_SELECT_NAMED_RANGE, bind, &bind[1])){
 		if (!mysql_stmt_execute(stmt)){
@@ -210,7 +210,7 @@ struct range* query_select_named_range(char* name){ // free return value
 								fail_check(!i);
 							}
 							// TODO: Conflict warning
-							if (!it_insert(&r->files[i].it, base, size, offsetId)){
+							if (!it_insert(&r->files[i].it, base, bound, offsetId)){
 								goto fail;
 							}
 						}
@@ -239,7 +239,7 @@ pass:
 int query_insert_named_range(struct range* r, char* user){
 	#define NUM_STMT 6
 	#define NUM_BIND 7
-	int ret = 0, i, j;
+	int ret = 0, i;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	char buf[PATH_MAX + 1];
@@ -258,7 +258,7 @@ int query_insert_named_range(struct range* r, char* user){
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &rangeId, sizeof(size_t), NULL, (bool*)0, true, &error); // RangeId
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, (bool*)0, true, &error); // FileId
 	mysql_bind_init(bind[5], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
-	mysql_bind_init(bind[6], MYSQL_TYPE_LONGLONG, &itn.size, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Size
+	mysql_bind_init(bind[6], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Bound
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
@@ -296,10 +296,10 @@ int query_insert_named_range(struct range* r, char* user){
 			fileId = mysql_insert_id(&mysql);
 		}
 		fail_check(!mysql_stmt_execute(stmt[3]));
-		it_foreach_interval(&r->files[i].it, j, p_itn){
+		it_foreach(&r->files[i].it, p_itn){
 			memcpy(&itn, p_itn, sizeof(struct it_node));
 			if (!mysql_stmt_execute(stmt[4])){
-				fprintf(stderr, "Failed to insert interval (%d, %d) in file %s\n", itn.base, itn.base + itn.size, buf); // TODO: verbose?
+				fprintf(stderr, "Failed to insert interval (%d, %d) in file %s\n", itn.base, itn.bound, buf); // TODO: verbose?
 			}
 		}
 	}
@@ -327,7 +327,7 @@ pass:
 int query_resize_file(struct range_file* f){
 	#define NUM_STMT 2
 	#define NUM_BIND 4
-	int ret = 0, i;
+	int ret = 0;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn, itn;
@@ -336,7 +336,7 @@ int query_resize_file(struct range_file* f){
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
 	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // change
-	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.size, sizeof(size_t), NULL, (bool*)0, true, &error); // old_size
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // old_bound
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &f->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
@@ -348,7 +348,7 @@ int query_resize_file(struct range_file* f){
 	TXN_START;
 	
 	fail_check(!mysql_stmt_execute(stmt[0]));
-	it_foreach_interval(&f->it, i, p_itn){ // TODO: write to file at the same time? Should definitely be done w/i transaction
+	it_foreach(&f->it, p_itn){ // TODO: write to file at the same time? Should definitely be done w/i transaction
 		memcpy(&itn, p_itn, sizeof(struct it_node));
 		fail_check(!mysql_stmt_execute(stmt[1]));
 	}

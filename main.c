@@ -104,13 +104,12 @@ ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off,
 void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
 	struct it_node* p_itn;
 	size_t src_pos = 0;
-	int i;
-	it_foreach_interval(&rf->it, i, p_itn){
+	it_foreach(&rf->it, p_itn){
 		cp_bytes(swp_fd, f_fd, p_itn->base - src_pos);
 		write(swp_fd, oracle[0], oracle_len[0]);
-		cp_bytes(swp_fd, f_fd, p_itn->size);
+		cp_bytes(swp_fd, f_fd, p_itn->bound - p_itn->base);
 		write(swp_fd, oracle[1], oracle_len[1]);
-		src_pos = p_itn->base + p_itn->size;
+		src_pos = p_itn->bound;
 	}
 }
 
@@ -118,12 +117,11 @@ int add_oracle_lines(int swp_fd, int f_fd, struct range_file* rf, char** oracle,
 	struct it_node* p_itn;
 	size_t src_pos = 0, line_count = 1;
 	FILE* f;
-	int i;
 	if (f = fdopen(f_fd, "r")){
-		it_foreach_interval(&rf->it, i, p_itn){
+		it_foreach(&rf->it, p_itn){
 			cp_lines(swp_fd, f, p_itn->base - line_count);
 			write(swp_fd, oracle[0], oracle_len[0]);
-			line_count += p_itn->size - p_itn->base;
+			line_count += p_itn->bound;
 			cp_lines(swp_fd, f, line_count - p_itn->base);
 			write(swp_fd, oracle[1], oracle_len[1]);
 		}
@@ -195,7 +193,7 @@ void exec_editor(char* f_path){
 }
 
 void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle w/o \n
-	int f_fd, i;
+	int f_fd, i = 0;
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
@@ -205,7 +203,7 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		err(1);
 	}
-	it_foreach_interval(&rf->it, i, p_itn){
+	it_foreach(&rf->it, p_itn){
 		o_open = oracle_search(swp_fd, oracle[0], oracle_len[0], o_close + oracle_len[0], &nl_count);
 		if (o_open < 0){
 			fprintf(stderr, "Failed to find opening oracle for range %d\n", i);
@@ -220,14 +218,15 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 			fprintf(stderr, "Failed to find closing oracle for range %d\n", i);
 			goto rexec;
 		}
-		//total_change += o_close - (p_itn->base + p_itn->size);
+		//total_change += o_close - (p_itn->bound);
 		// TODO: must keep old size for resize file query
 		if (rf->mode == RANGE_FILE_MODE_LINE){
-			// TODO: new size = nl_count - 2 * i - 1;
+			// TODO: new bound = nl_count - 1;
 		}
 		else { // RANGE_FILE_MODE_NORMAL
-			// TODO: new size = o_close - o_open - oracle_len[0];
+			// TODO: new bound = o_close - i * oracle_len[0];
 		}
+		i++;
 	}
 	// unlink_by_fd(swp_fd); // to remove swap file
 	//close(swp_fd);
@@ -268,7 +267,7 @@ void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_
 						fprintf(stderr, "Invalid region: base %lu, bound %lu\n", *base, *bound);
 						err(1);
 					}
-					*bound -= *base; // size
+					*bound;
 					return;
 				}
 			}
@@ -289,7 +288,7 @@ int r_mode_ok(char r_mode){
 void opts1(int argc, char* argv[]){
 	int i = -1, j;
 	unsigned long m;
-	size_t base, size;
+	size_t base, bound;
 	char c, r_mode;
 	opts1_m = malloc(argc * sizeof(int));
 	if (!opts1_m){
@@ -351,9 +350,9 @@ void opts1(int argc, char* argv[]){
 				break;
 			case 'r': // [r]anges
 				for (; optind < argc && argv[optind][0] != '-'; optind++){
-					get_range(&base, &size, &m, argv[optind], r_mode); // TODO: r_mode comes from -f... may be multiple
+					get_range(&base, &bound, &m, argv[optind], r_mode); // TODO: r_mode comes from -f... may be multiple
 					for (i = 0; opts1_m[i] >= 0; i++){
-						if (!it_insert(&input_range->files[opts1_m[i]].it, base, size)){
+						if (!it_insert(&input_range->files[opts1_m[i]].it, base, bound)){
 							err(1);
 						}
 					}
