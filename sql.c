@@ -183,7 +183,7 @@ void close_stmts(MYSQL_STMT* stmt, int n){
 			mysql_stmt_close(stmt[i]);
 }
 
-int query_select_named_range(char* name, struct range* r){
+int query_select_named_range(struct range* r, char* name){
 	#define NUM_STMT 1
 	#define NUM_BIND 6
 	int ret = 0, i = 0, succ;
