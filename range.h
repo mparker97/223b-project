@@ -5,7 +5,7 @@
 
 #define RANGE_FILE_MODE_NORMAL 'b' // bytes
 #define RANGE_FILE_MODE_LINE 'l'
-#define RANGE_FILE_MODE_STRING 's'
+//#define RANGE_FILE_MODE_STRING 's'
 
 struct range_file{
 	struct it_head it;
@@ -15,13 +15,7 @@ struct range_file{
 };
 
 struct range{
-	union{
-		struct{
-			struct range_file* files;
-			int num_files;
-		};
-		struct a_list ls;
-	};
+	A_LIST_UNION(struct range_file, files, num_files, ls);
 	char* name;
 	unsigned long id;
 };
@@ -81,6 +75,26 @@ int range_add_new_file(struct range* r, char* file_path, unsigned long id, char 
 		}
 	}
 	return range_add_file(r, file_path, id, mode);
+}
+
+void print_file(struct range_file* rf, char* tab_buf){
+	struct it_node* p_itn;
+	tab_out(tab_buf,
+		printf("%sFile name: %s; mode '%c'\n", tab_buf, rf->file_path, rf->mode);
+		it_foreach(&rf->it, p_itn){
+			print_it(p_itn, tab_buf);
+		}
+	);
+}
+
+void print_range(struct range* r, char* tab_buf){
+	int i;
+	tab_out(tab_buf,
+		printf("%sRange name: %s\n", tab_buf, r->name);
+		for (i = 0; i < r->num_files; i++){
+			print_file(&r->files[i], tab_buf);
+		}
+	);
 }
 
 #endif

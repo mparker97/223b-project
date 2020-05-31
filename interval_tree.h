@@ -89,15 +89,18 @@ struct it_node* it_insert(struct it_head* it, size_t base, size_t bound, unsigne
 	}
 	if (p_f == &f){ // never intersected; insert new node
 		p_f = malloc(sizeof(struct it_node));
-		if (p_f == NULL){
-			fprintf(stderr, "failed to malloc new it_node\n");
-		}
-		else{
+		if (p_f != NULL){
 			memcpy(p_f, &f, sizeof(struct it_node));
 			l_list_add_after(save, &p_f->ls);
 		}
 	}
 	return p_f;
+}
+
+void print_it(struct it_node* it, char* tab_buf){
+	tab_out(tab_buf,
+		printf("%sBase: %lu; Bound: %lu\n", tab_buf, it->base, it->bound);
+	);
 }
 
 #endif

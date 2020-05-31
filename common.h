@@ -16,6 +16,15 @@
 #define offset_of(t, m) ((size_t)&((t*)0)->m)
 #define container_of(p, t, m) ((t*)((char*)(p) - offset_of(t, m)))
 
+#define tab_out(buf, instrs) \
+	do { \
+		const size_t TAB_OUT_BUF_LEN = strlen(buf); \
+		(buf)[TAB_OUT_BUF_LEN + 1] = 0; \
+		(buf)[TAB_OUT_BUF_LEN] = '\t'; \
+		instrs; \
+		(buf)[TAB_OUT_BUF_LEN] = 0; \
+	} while (0)
+
 extern int* opts1_m;
 extern char** p_exe_path;
 extern char* file_path;
@@ -40,6 +49,12 @@ void print(const char* a, const char* b, ...){
 		vfprintf(stdout, b, args);
 	}
 	va_end(args);
+}
+
+void do_print_range(struct range* r){
+	char tab_buf[8];
+	tab_buf[0] = 0;
+	print_range(r, tab_buf);
 }
 
 ssize_t substrn(const char* str, size_t str_len, char* src, size_t src_len){ // find a leading portion of str (nonzero length str_len) in src (length src_len); return index of start
@@ -86,6 +101,17 @@ struct a_list{ // "amortized" list (contiguous array); initial size of A_LIST_IN
 	int sz;
 };
 
+#define A_LIST_UNION(t, n0, n1, n2) \
+union{ \
+	struct{ \
+		t* n0; \
+		int n1; \
+	}; \
+	struct a_list n2; \
+}
+
+extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
+
 void* a_list_init(struct a_list* ls, size_t elm_sz){
 	if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
 		return NULL;
@@ -101,6 +127,14 @@ void* a_list_add(struct a_list* ls, size_t elm_sz){
 		}
 	}
 	return &ls->ls[ls->sz++];
+}
+
+void* a_list_addc(struct a_list* ls, size_t elm_sz){
+	void* r = a_list_add(ls, elm_sz);
+	if (r){
+		memset(r, 0, elm_sz);
+	}
+	return r;
 }
 
 #endif
