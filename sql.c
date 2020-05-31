@@ -104,27 +104,24 @@ static const char* QUERY_RESIZE_FILE[] = {
 		.......A-------B.......
 		.C---D.................
 		(Do nothing)
-		
 	*/
 	
-	"SELECT OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId
+	"SELECT Base, OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId
 	// for each offset in this file for the range {
-		"WITH oid AS ?, \
-			ob AS ?, \
-			c AS ? \
-			b AS (SELECT Base FROM Offset WHERE OffsetId = oid), \
-		UPDATE Offset SET \
+		"SET @oid = ?, @ob = ?, @c = ?",
+		"SELECT Base FROM Offset WHERE OffsetId = @oid INTO @b",
+		"UPDATE Offset SET \
 			Base = CASE \
-				WHEN OffsetId != oid AND Base >= ob THEN Base + c \
+				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @c \
 				ELSE Base END, \
 			Bound = CASE \
-				WHEN Base <= b AND Bound >= ob THEN Bound + c \
+				WHEN Base <= @b AND Bound >= @ob THEN Bound + @c \
 				ELSE Bound END, \
 			Conflict = CASE \
-				WHEN OffsetId = oid THEN FALSE \
-				WHEN (b < Base AND ob < Bound AND ob > Base) \
-					OR (b <= Base AND ob >= Bound) \
-					OR (b > Base AND b < Bound AND ob > Bound) THEN TRUE \
+				WHEN OffsetId = @oid THEN FALSE \
+				WHEN (@b < Base AND @ob < Bound AND @ob > Base) \
+					OR (@b <= Base AND @ob >= Bound) \
+					OR (@b > Base AND @b < Bound AND @ob > Bound) THEN TRUE \
 				ELSE Conflict END \
 		WHERE FileId = ?", // offsetId, change, old_bound, fileId
 	// }
@@ -169,9 +166,27 @@ fail:
 	return -1;
 }
 
-struct range* query_select_named_range(char* name){ // free return value
+void stmt_errors(MYSQL_STMT* stmt, int n){
+	int i;
+	for (i = 0; i < n; i++){
+		if (mysql_stmt_error(stmt[i])){
+			fprintf(stderr, "%s\n", mysql_stmt_error(stmt[i]));
+			break;
+		}
+	}
+}
+
+void close_stmts(MYSQL_STMT* stmt, int n){
+	int i;
+	for (i = 0; i < n; i++)
+		if (stmt[i])
+			mysql_stmt_close(stmt[i]);
+}
+
+int query_select_named_range(char* name, struct range* r){
+	#define NUM_STMT 1
 	#define NUM_BIND 6
-	struct range* r = NULL;
+	int ret = 0, i = 0, succ;
 	MYSQL_STMT* stmt;
 	MYSQL_BIND bind[NUM_BIND];
 	char buf[PATH_MAX + 1];
@@ -179,20 +194,19 @@ struct range* query_select_named_range(char* name){ // free return value
 	unsigned long fileId, offsetId;
 	size_t base, bound;
 	unsigned long len;
-	int succ, i = 0;
 	bool error;
 	
 	old_buf[0] = 0;
 	len = strlen(name);
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, (bool*)0, true, &error); // File.FileId
-	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, name, len, &len, (bool*)0, true, &error); // Range.Name
-	mysql_bind_init(bind[2], MYSQL_TYPE_STRING, buf, PATH_MAX, &len, (bool*)0, true, &error); // File.FilePath
-	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
-	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
-	mysql_bind_init(bind[5], MYSQL_TYPE_LONGLONG, &bound, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Bound
+	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, PATH_MAX, &len, (bool*)0, true, &error); // File.FilePath
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
+	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
+	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &bound, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Bound
+	mysql_bind_init(bind[5], MYSQL_TYPE_STRING, name, len, &len, (bool*)0, true, &error); // Range.Name
 	
-	if (!pps(&stmt, QUERY_SELECT_NAMED_RANGE, bind, &bind[1])){
+	if (!pps(&stmt, QUERY_SELECT_NAMED_RANGE, &bind[5], &bind[0])){
 		if (!mysql_stmt_execute(stmt)){
 			if (!mysql_stmt_store_result(stmt)){
 				if (r = malloc(sizeof(struct range))){
@@ -221,18 +235,12 @@ struct range* query_select_named_range(char* name){ // free return value
 	}
 	goto pass;
 fail:
-	if (r){
-		range_deinit(r);
-		freec(r);
-	}
-	if (mysql_stmt_error(stmt)){
-		fprintf(stderr, "%s\n", mysql_stmt_error(stmt));
-		break;
-	}
+	ret = -1;
+	stmt_errors(stmt, NUM_STMT);
 pass:
-	if (stmt)
-		mysql_stmt_close(stmt);
-	return r;
+	close_stmts(stmt, NUM_STMT);
+	return ret;
+	#undef NUM_STMT
 	#undef NUM_BIND
 }
 
@@ -262,7 +270,7 @@ int query_insert_named_range(struct range* r, char* user){
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
-		pps(stmt, QUERY_INSERT_NAMED_RANGE[0], bind, NULL) ||
+		pps(&stmt[0], QUERY_INSERT_NAMED_RANGE[0], &bind[0], NULL) ||
 		pps(&stmt[1], QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL) ||
 		pps(&stmt[2], QUERY_INSERT_NAMED_RANGE[2], &bind[2], &bind[4]) ||
 		pps(&stmt[3], QUERY_INSERT_NAMED_RANGE[3], &bind[3], NULL) ||
@@ -286,7 +294,7 @@ int query_insert_named_range(struct range* r, char* user){
 		if (mysql_stmt_affected_rows(stmt[1]) == 0){
 			fail_check(!mysql_stmt_execute(stmt[2]));
 			succ = mysql_stmt_fetch(stmt[2]);
-			fail_check(succ == 1);
+			fail_check(succ != 1);
 			if (succ == MYSQL_NO_DATA){
 				fprintf(stderr, "Failed to add file %s\n", buf); // failed to add and failed to receive
 				goto fail;
@@ -309,40 +317,38 @@ int query_insert_named_range(struct range* r, char* user){
 fail:
 	TXN_ROLLBACK;
 	ret = -1;
-	for (i = 0; i < NUM_STMT; i++){
-		if (mysql_stmt_error(stmt[i])){
-			fprintf(stderr, "%s\n", mysql_stmt_error(stmt[i]));
-			break;
-		}
-	}
+	stmt_errors(stmt, NUM_STMT);
 pass:
-	for (i = 0; i < NUM_STMT; i++)
-		if (stmt[i])
-			mysql_stmt_close(stmt[i]);
+	close_stmts(stmt, NUM_STMT);
 	return ret;
 	#undef NUM_STMT
 	#undef NUM_BIND
 }
 
 int query_resize_file(struct range_file* f){
-	#define NUM_STMT 2
-	#define NUM_BIND 4
+	#define NUM_STMT 4
+	#define NUM_BIND 5
 	int ret = 0;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn, itn;
+	unsigned long base;
+	int succ;
 	bool error;
 	
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
-	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
-	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // change
-	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // old_bound
-	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &f->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
+	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
+	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // change
+	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // old_bound
+	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &f->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
-		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[3], NULL) ||
-		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[0], NULL)
+		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[4], NULL) ||
+		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], NULL) ||
+		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, &bind[0]) ||
+		pps(&stmt[3], QUERY_RESIZE_FILE[3], &bind[4], NULL)
 	);
 	
 	TXN_START;
@@ -351,6 +357,11 @@ int query_resize_file(struct range_file* f){
 	it_foreach(&f->it, p_itn){ // TODO: write to file at the same time? Should definitely be done w/i transaction
 		memcpy(&itn, p_itn, sizeof(struct it_node));
 		fail_check(!mysql_stmt_execute(stmt[1]));
+		fail_check(!mysql_stmt_execute(stmt[2]));
+		succ = mysql_stmt_fetch(stmt[2]);
+		fail_check(succ != 1 && succ != MYSQL_NO_DATA);
+		// TODO: result in base
+		fail_check(!mysql_stmt_execute(stmt[3]));
 	}
 	
 	TXN_COMMIT;
@@ -358,16 +369,9 @@ int query_resize_file(struct range_file* f){
 fail:
 	TXN_ROLLBACK;
 	ret = -1;
-	for (i = 0; i < NUM_STMT; i++){
-		if (mysql_stmt_error(stmt[i])){
-			fprintf(stderr, "%s\n", mysql_stmt_error(stmt[i]));
-			break;
-		}
-	}
+	stmt_errors(stmt, NUM_STMT);
 pass:
-	for (i = 0; i < NUM_STMT; i++)
-		if (stmt[i])
-			mysql_stmt_close(stmt[i]);
+	close_stmts(stmt, NUM_STMT);
 	return ret;
 	#undef NUM_BIND
 	#undef NUM_STMT
