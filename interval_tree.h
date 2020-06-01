@@ -9,7 +9,7 @@
 	l_list_foreach(p_itn, struct it_node, ls)
 
 // line numbers are 1-indexed
-struct it_node{
+typedef struct it_node{
 	struct l_list ls;
 	unsigned long id;
 	//union{
@@ -20,7 +20,10 @@ struct it_node{
 		size_t bound;
 	//	char* r_bound;
 	//};
-};
+	// used for zookeeper
+	size_t version;
+	size_t sequence;
+} it_node_t;
 
 // linked list because we don't have time to get fancy
 struct it_head{
