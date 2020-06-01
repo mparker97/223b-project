@@ -52,8 +52,7 @@ void cp_lines(int dst_fd, FILE* src_f, size_t line_count){
 		if (gl < 0){
 			fprintf(stderr, "Failed to read from file %d\n", fileno(src_f));
 			closec(dst_fd);
-			int src_fd = fileno(src_f);
-			closec(src_fd);
+			closec(fileno(src_f));
 			free(line);
 			err(1);
 		}
@@ -63,7 +62,7 @@ void cp_lines(int dst_fd, FILE* src_f, size_t line_count){
 		free(line);
 }
 
-char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute
+char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
 	char* ret, *s;
 	s = strrchr(f_path, '/');
 	if (!(ret = malloc(strlen(src_dir) + strlen(s) + 5))){
@@ -173,27 +172,6 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 	return swp_fd;
 }
 
-void exec_editor(char* f_path){
-	char* tmp;
-	int f = fork();
-	if (f == 0){
-		// squeeze in file between exe and args
-		p_exe_path[-1] = p_exe_path[0];
-		p_exe_path[0] = f_path;
-		execvp(p_exe_path[-1], &p_exe_path[-1]);
-		fprintf(stderr, "Failed to run executable %s\n", tmp);
-		err(1);
-	}
-	else if (f > 0){
-		waitpid(f, NULL, 0);
-		// TODO: push changes with each save somehow?
-	}
-	else {
-		fprintf(stderr, "fork failed\n");
-		err(1);
-	}
-}
-
 void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle w/o \n
 	int f_fd, i = 0;
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
@@ -221,12 +199,13 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 			goto rexec;
 		}
 		//total_change += o_close - (p_itn->bound);
-		// TODO: must keep old size for resize file query
+		// must keep old bound for resize file query
+			// However, don't need old base, so replace it with new bound
 		if (rf->mode == RANGE_FILE_MODE_LINE){
-			// TODO: new bound = nl_count - 1;
+			p_itn->base = nl_count - 1;
 		}
 		else { // RANGE_FILE_MODE_NORMAL
-			// TODO: new bound = o_close - i * oracle_len[0];
+			p_itn->base = o_close - i * oracle_len[0];
 		}
 		i++;
 	}
@@ -235,6 +214,27 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 	close(f_fd);
 rexec:
 	exec_editor(rf->file_path); // TODO: maybe move this to caller?
+}
+
+void exec_editor(char* f_path){
+	char* tmp;
+	int f = fork();
+	if (f == 0){
+		// squeeze in file between exe and args
+		p_exe_path[-1] = p_exe_path[0];
+		p_exe_path[0] = f_path;
+		execvp(p_exe_path[-1], &p_exe_path[-1]);
+		fprintf(stderr, "Failed to run executable %s\n", tmp);
+		err(1);
+	}
+	else if (f > 0){
+		waitpid(f, NULL, 0);
+		// TODO: push changes with each save somehow?
+	}
+	else {
+		fprintf(stderr, "fork failed\n");
+		err(1);
+	}
 }
 
 void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_mode){

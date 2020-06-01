@@ -108,14 +108,14 @@ static const char* QUERY_RESIZE_FILE[] = {
 	
 	"SELECT Base, OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId
 	// for each offset in this file for the range {
-		"SET @oid = ?, @ob = ?, @c = ?",
+		"SET @oid = ?, @ob = ?, @nb = ?",
 		"SELECT Base FROM Offset WHERE OffsetId = @oid INTO @b",
 		"UPDATE Offset SET \
 			Base = CASE \
-				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @c \
+				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @nb - @ob \
 				ELSE Base END, \
 			Bound = CASE \
-				WHEN Base <= @b AND Bound >= @ob THEN Bound + @c \
+				WHEN Base <= @b AND Bound >= @ob THEN Bound + @nb - @ob \
 				ELSE Bound END, \
 			Conflict = CASE \
 				WHEN OffsetId = @oid THEN FALSE \
@@ -123,7 +123,7 @@ static const char* QUERY_RESIZE_FILE[] = {
 					OR (@b <= Base AND @ob >= Bound) \
 					OR (@b > Base AND @b < Bound AND @ob > Bound) THEN TRUE \
 				ELSE Conflict END \
-		WHERE FileId = ?", // offsetId, change, old_bound, fileId
+		WHERE FileId = ?", // offsetId, new_bound, old_bound, fileId
 	// }
 };
 
@@ -339,7 +339,7 @@ int query_resize_file(struct range_file* f){
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
 	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
-	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // change
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // new_bound; overwriting the 'base' field
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // old_bound
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &f->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
 	
@@ -358,11 +358,13 @@ int query_resize_file(struct range_file* f){
 		memcpy(&itn, p_itn, sizeof(struct it_node));
 		fail_check(!mysql_stmt_execute(stmt[1]));
 		fail_check(!mysql_stmt_execute(stmt[2]));
-		succ = mysql_stmt_fetch(stmt[2]);
+		succ = mysql_stmt_fetch(stmt[2]); // get new base
 		fail_check(succ != 1 && succ != MYSQL_NO_DATA);
 		// TODO: result in base
 		fail_check(!mysql_stmt_execute(stmt[3]));
+		p_itn->base = base; // update it_node's field with new base
 	}
+	// TODO
 	
 	TXN_COMMIT;
 	goto pass;
