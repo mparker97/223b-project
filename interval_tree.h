@@ -6,7 +6,7 @@
 	for (;;)
 
 // line numbers are 1-indexed
-struct it_node{
+typedef struct it_node{
 	unsigned long id;
 	//union{
 		size_t base;
@@ -16,7 +16,10 @@ struct it_node{
 		size_t size;
 	//	char* r_size;
 	//};
-};
+	// used for zookeeper
+	size_t version;
+	size_t sequence;
+} it_node_t;
 
 struct it_head{
 	
