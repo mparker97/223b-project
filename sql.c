@@ -64,6 +64,13 @@ static const char* QUERY_INSERT_NAMED_RANGE[] = {
 	"UPDATE Range SET Range.Init = TRUE WHERE Range.RangeId = ?" // rangeId
 };
 
+static const char* QUERY_FINISH_INSERT_NAMED_RANGE[] = {
+	"SELECT OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId; 
+	// for each offset in this file for the range {
+		"SELECT Base, LBase INTO @b, @lb FROM Offset WHERE OffsetId = @oid", // base, lbase
+	// }
+};
+
 static const char* QUERY_RESIZE_FILE[] = {
 	/*
 		One transaction per file
@@ -412,8 +419,7 @@ int query_insert_named_range(struct range* r){
 			}
 		}
 	}
-	
-	fail_check(!mysql_stmt_execute(stmt[5]));
+	//fail_check(!mysql_stmt_execute(stmt[5]));
 	TXN_COMMIT;
 	goto pass;
 fail:
@@ -422,10 +428,15 @@ fail:
 	stmt_errors(stmt, NUM_STMT);
 pass:
 	close_stmts(stmt, NUM_STMT);
+	if (ret >= 0){
+		finish_insert_named_range(r);
+	}
 	return ret;
 	#undef NUM_STMT
 	#undef NUM_BIND
 }
+
+
 
 int query_resize_file(struct range_file* rf){
 	#define NUM_STMT 4

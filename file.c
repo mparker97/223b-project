@@ -6,7 +6,7 @@
 #include "sql.h"
 
 static void* finish_insert_named_range_thread(void* p_arg){
-	char* file_path = (char*)p_arg;
+	struct range_file* rf = (struct range_file*)p_arg;
 	
 }
 
@@ -26,7 +26,7 @@ static int finish_insert_named_range_child(struct range* r){
 		goto fail;
 	}
 	for (i = 0; i < r->num_files; i++){
-		pthread_create(&thds[i], NULL, finish_insert_named_range_thread, &r->files[i].file_path);
+		pthread_create(&thds[i], NULL, finish_insert_named_range_thread, &r->files[i]);
 	}
 	// TODO
 	for (i = 0; i < r->num_files; i++){
