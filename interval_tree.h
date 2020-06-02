@@ -14,8 +14,6 @@ typedef struct it_node{
 	unsigned long id;
 	size_t base;
 	size_t bound;
-	size_t lbase;
-	size_t lbound;
 	// used for zookeeper
 	size_t version;
 	size_t sequence;
@@ -46,7 +44,7 @@ int it_intersect(struct it_node* a, struct it_node* b){
 	return 0;
 }
 
-struct it_node* it_insert(struct it_head* it, size_t base, size_t bound, size_t lbase, size_t lbound, unsigned long id){ // not at all thread safe
+struct it_node* it_insert(struct it_head* it, size_t base, size_t bound, unsigned long id){ // not at all thread safe
 	struct it_node* p_itn, *p_f;
 	struct l_list* save = &it->ls;
 	struct it_node f = (struct it_node){
@@ -54,8 +52,6 @@ struct it_node* it_insert(struct it_head* it, size_t base, size_t bound, size_t 
 		.id = id,
 		.base = base,
 		.bound = bound,
-		.lbound = lbound,
-		.lbase = lbase,
 	};
 	p_f = &f;
 	it_foreach(it, p_itn){
@@ -98,14 +94,9 @@ struct it_node* it_insert(struct it_head* it, size_t base, size_t bound, size_t 
 	return p_f;
 }
 
-void print_it(struct it_node* it, char* tab_buf, char mode){
+void print_it(struct it_node* it, char* tab_buf){
 	tab_out(tab_buf,
-		if (mode == RANGE_FILE_MODE_NORMAL){
-			printf("%sBase: %lu; Bound: %lu\n", tab_buf, it->base, it->bound);
-		}
-		else{
-			printf("%sBase: %lu; Bound: %lu\n", tab_buf, it->lbase, it->lbound);
-		}
+		printf("%sBase: %lu; Bound: %lu\n", tab_buf, it->base, it->bound);
 	);
 }
 

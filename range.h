@@ -3,10 +3,6 @@
 #include "common.h"
 #include "interval_tree.h"
 
-#define RANGE_FILE_MODE_NORMAL 'b' // bytes
-#define RANGE_FILE_MODE_LINE 'l'
-//#define RANGE_FILE_MODE_STRING 's'
-
 struct range_file{
 	struct it_head it;
 	char* file_path;
@@ -46,7 +42,7 @@ fail:
 	return -1;
 }
 
-int range_add_file(struct range* r, char* file_path, unsigned long id, char mode){
+int range_add_file(struct range* r, char* file_path, unsigned long id){
 	struct range_file* rf;
 	char* str;
 	if (!(str = strdup(file_path))){
@@ -56,7 +52,6 @@ int range_add_file(struct range* r, char* file_path, unsigned long id, char mode
 	if (rf){
 		rf->file_path = str;
 		rf->id = id;
-		rf->mode = mode;
 		return r->num_files - 1;
 	}
 fail:
@@ -65,13 +60,11 @@ fail:
 	return -1;
 }
 
-int range_add_new_file(struct range* r, char* file_path, unsigned long id, char mode){
+int range_add_new_file(struct range* r, char* file_path, unsigned long id){
 	int i;
 	for (i = 0; i < r->num_files; i++){
 		if (!strcmp(file_path, r->files[i].file_path)){
-			if (r->files[i].mode == mode)
-				return i;
-			return -r->files[i].mode;
+			return -1;
 		}
 	}
 	return range_add_file(r, file_path, id, mode);
@@ -80,7 +73,7 @@ int range_add_new_file(struct range* r, char* file_path, unsigned long id, char 
 void print_file(struct range_file* rf, char* tab_buf){
 	struct it_node* p_itn;
 	tab_out(tab_buf,
-		printf("%sFile name: %s; mode '%c'\n", tab_buf, rf->file_path, rf->mode);
+		printf("%sFile name: %s\n", tab_buf, rf->file_path);
 		it_foreach(&rf->it, p_itn){
 			print_it(p_itn, tab_buf);
 		}

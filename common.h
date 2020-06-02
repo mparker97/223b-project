@@ -29,25 +29,10 @@
 extern int* opts1_m;
 extern char** p_exe_path;
 extern struct range* input_range;
-extern char verbosity;
-extern int read_from_stdin;
 
 void err(int e){
 	// TODO: frees
 	exit(e);
-}
-
-void print(const char* a, const char* b, ...){
-	va_list args;
-	if (verbosity == 0){
-		va_start(args, a);
-		vfprintf(stdout, a, args);
-	}
-	else if (verbosity == 'v'){
-		va_start(args, b);
-		vfprintf(stdout, b, args);
-	}
-	va_end(args);
 }
 
 void do_print_range(struct range* r){

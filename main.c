@@ -22,11 +22,9 @@
 int* opts1_m = NULL;
 char** p_exe_path = NULL;
 A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
-char verbosity = 0;
-int read_from_stdin = 0;
 static char mode = 0;
 
-void cp_bytes_count_lines(size_t* line_count, int dst_fd, int src_fd, size_t sz){
+void cp_bytes(int dst_fd, int src_fd, size_t sz){
 	char buf[CP_BYTES_BUF_SZ + 1];
 	size_t i;
 	ssize_t r;
@@ -38,31 +36,9 @@ void cp_bytes_count_lines(size_t* line_count, int dst_fd, int src_fd, size_t sz)
 			closec(src_fd);
 			err(1);
 		}
-		*line_count += string_char_count(buf, '\n');
 		write(dst_fd, buf, r);
 	}
 	return line_count;
-}
-
-void cp_lines_count_bytes(size_t* byte_count, int dst_fd, FILE* src_f, size_t line_count){
-	char* line = NULL;
-	size_t n;
-	ssize_t gl;
-	for (; line_count < p_itn->base; line_count++){
-		gl = getline(&line, &n, src_f);
-		if (gl < 0){
-			fprintf(stderr, "Failed to read from file %d\n", fileno(src_f));
-			closec(dst_fd);
-			closec(fileno(src_f));
-			free(line);
-			err(1);
-		}
-		*byte_count += n;
-		write(dst_fd, line, gl);
-	}
-	if (line)
-		free(line);
-	return byte_count;
 }
 
 char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
@@ -87,14 +63,14 @@ void unlink_by_fd(int fd){
 	free(path);
 }
 
-ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off, size_t* count_lines){ // search file identified by descriptor fd for string s of length s_len, starting at offset off
-	char* line, *str;
+ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off){ // search file identified by descriptor fd for string s of length s_len, starting at offset off
+	char* line = NULL, *str;
 	size_t ret = off, n;
 	ssize_t s;
 	FILE* f = fdopen(fd, "r");
 	if (f){
 		fseek(f, off, SEEK_SET);
-		for (line = NULL; (s = getline(&line, &n, f)) >= 0; ret += s, (*count_lines)++){
+		for (line = NULL; (s = getline(&line, &n, f)) >= 0; ret += s){
 			str = strstr(line, oracle);
 			if (str){
 				return ret + (str - line);
@@ -107,30 +83,13 @@ ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off,
 
 void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
 	struct it_node* p_itn;
-	size_t src_pos = 0, line_count = 1;
+	size_t src_pos = 0;
 	it_foreach(&rf->it, p_itn){
-		cp_bytes_count_lines(&line_count, swp_fd, f_fd, p_itn->base - src_pos);
+		cp_bytes(swp_fd, f_fd, p_itn->base - src_pos);
 		write(swp_fd, oracle[0], oracle_len[0]);
-		p_itn->lbase = line_count;
-		cp_bytes_count_lines(&line_count, swp_fd, f_fd, p_itn->bound - p_itn->base);
+		cp_bytes(swp_fd, f_fd, p_itn->bound - p_itn->base);
 		write(swp_fd, oracle[1], oracle_len[1]);
-		p_itn->lbound = line_count;
 		src_pos = p_itn->bound;
-	}
-}
-
-int add_oracle_lines(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
-	struct it_node* p_itn;
-	size_t src_pos = 0, line_count = 1;
-	FILE* f;
-	if (f = fdopen(f_fd, "r")){
-		it_foreach(&rf->it, p_itn){
-			cp_lines(swp_fd, f, p_itn->base - line_count);
-			write(swp_fd, oracle[0], oracle_len[0]);
-			line_count += p_itn->bound;
-			cp_lines(swp_fd, f, line_count - p_itn->base);
-			write(swp_fd, oracle[1], oracle_len[1]);
-		}
 	}
 }
 
@@ -161,15 +120,11 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 	}
 	
 	fstat(f_fd, &f_stat);
-	if (rf->mode == RANGE_FILE_MODE_NORMAL){
-		oracle_len[0]--;
-		oracle_len[1]--;
-		add_oracle_bytes(swp_fd, f_fd, rf, oracle, oracle_len);
-	}
-	else{ // RANGE_FILE_MODE_LINE
-		add_oracle_lines(swp_fd, f_fd, rf, oracle, oracle_len);
-	}
-	cp_bytes_count_lines(swp_fd, f_fd, f_stat.st_size - lseek(f_fd, 0, SEEK_SET));
+	oracle_len[0]--;
+	oracle_len[1]--;
+	add_oracle_bytes(swp_fd, f_fd, rf, oracle, oracle_len);
+	cp_bytes(swp_fd, f_fd, f_stat.st_size - lseek(f_fd, 0, SEEK_SET));
+	
 	close(f_fd);
     snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
     linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
@@ -206,12 +161,7 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 		//total_change += o_close - (p_itn->bound);
 		// must keep old bound for resize file query
 			// However, don't need old base, so replace it with new bound
-		if (rf->mode == RANGE_FILE_MODE_LINE){
-			p_itn->base = nl_count - 1;
-		}
-		else { // RANGE_FILE_MODE_NORMAL
-			p_itn->base = o_close - i * oracle_len[0];
-		}
+		p_itn->base = o_close - i * oracle_len[0];
 		i++;
 	}
 	// unlink_by_fd(swp_fd); // to remove swap file
@@ -243,61 +193,27 @@ void exec_editor(char* f_path){
 	}
 }
 
-void get_range(size_t* base, size_t* bound, unsigned long* m, char* str, char r_mode){
-	*m = IT_NODE_NORMAL;
-	switch(r_mode){
-		/*case RANGE_FILE_MODE_STRING:
-			*m = IT_NODE_STRING;
-			if (regex_test(str + 1)){
+void get_range(size_t* base, size_t* bound, char* str){
+	*base = atol(str);
+	if (str = strchr(str, ',')){
+		if (str[1]){
+			*bound = atol(str + 1);
+			if (*bound <= *base){
+				fprintf(stderr, "Invalid region: base %lu, bound %lu\n", *base, *bound);
 				err(1);
 			}
-			*base = (size_t)(str + 1);
-			if (str = pull_string(str)){
-				if (str[1] == ','){
-					if (regex_test(str + 3)){
-						err(1);
-					}
-					*bound = (size_t)(str + 3);
-					if (pull_string(str + 2)){
-						return;
-					}
-				}
-			}
-			break;*/
-		case RANGE_FILE_MODE_LINE:
-			*m = IT_NODE_LINE;
-		case RANGE_FILE_MODE_NORMAL:
-			*base = atol(str);
-			if (str = strchr(str, ',')){
-				if (str[1]){
-					*bound = atol(str + 1);
-					if (*bound <= *base){
-						fprintf(stderr, "Invalid region: base %lu, bound %lu\n", *base, *bound);
-						err(1);
-					}
-					*bound;
-					return;
-				}
-			}
-			*bound = (size_t)-1;
+			*bound;
 			return;
-		default:
-			fprintf(stderr, "Invalid option %c\n", r_mode);
-			err(1);
+		}
 	}
-	fprintf(stderr, "Malformed region\n");
+	fprintf(stderr, "Malformed region: \"%s\"\n", str);
 	err(1);
-}
-
-int r_mode_ok(char r_mode){
-	return r_mode == RANGE_FILE_MODE_NORMAL || r_mode == RANGE_FILE_MODE_LINE;// || r_mode == RANGE_FILE_MODE_STRING;
 }
 
 void opts1(int argc, char* argv[]){
 	int i = -1, j;
-	unsigned long m;
 	size_t base, bound;
-	char c, r_mode;
+	char c;
 	opts1_m = malloc(argc * sizeof(int));
 	if (!opts1_m){
 		fprintf(stderr, "Too many arguments\n");
@@ -306,14 +222,6 @@ void opts1(int argc, char* argv[]){
 	while ((c = getopt(argc, argv, "+e:f:qr:sv")) != -1){
 		// TODO: separate op strings for each mode!
 		switch (c){
-			case 'v': // [v]erbose
-			case 'q': // [q]uiet
-				if (verbosity != 0 && verbosity != c){
-					fprintf(stderr, "Incompatible options: %c and %c\n", c, verbosity);
-					err(1);
-				}
-				verbosity = c;
-				break;
 			case 'f': // [f]iles
 				switch (mode){
 					// TODO: figure out what is allowed for which modes
@@ -326,23 +234,10 @@ void opts1(int argc, char* argv[]){
 						if (i < 0){ // came from range option; clear file set
 							opts1_m[0] = -1;
 						}
-						else if (r_mode != optarg[0]){
-							fprintf(stderr, "files must have the same range mode (%c conflicts with %c)\n", r_mode, optarg[0]);
-							err(1);
-						}
-						r_mode = optarg[0];
-						if (!r_mode_ok(r_mode)){
-							fprintf(stderr, "Invalid range mode '%c'\n", optarg[0]);
-							err(1);
-						}
 						optind--;
 						foreach_optarg(argc, argv){
-							j = range_add_new_file(&ranges.arr[0], argv[optind], ID_NONE, r_mode);
-							if (j <= -2){
-								fprintf(stderr, "File %s already has a different range mode '%c'\n", argv[optind], -j);
-								err(1);
-							}
-							else if (j < 0){
+							j = range_add_new_file(&ranges.arr[0], argv[optind], ID_NONE);
+							if (j < 0){
 								fprintf(stderr, "Failed to add file %s\n", argv[optind]);
 								err(1);
 							}
@@ -376,10 +271,9 @@ skip:;
 							err(1);
 						}
 						foreach_optarg(argc, argv){
-							get_range(&base, &bound, &m, argv[optind], r_mode);
+							get_range(&base, &bound, argv[optind]);
 							for (i = 0; opts1_m[i] >= 0; i++){
-								// Put either mode in base/bound for now & punt disambiguation to sql
-								if (!it_insert(&(ranges.arr[0].files[opts1_m[i]].it), base, bound, INVALID_SIZE_T, INVALID_SIZE_T)){
+								if (!it_insert(&(ranges.arr[0].files[opts1_m[i]].it), base, bound)){
 									fprintf(stderr, "Failed to insert region [%lu, %lu)\n", base, bound); // only due to malloc as of now
 									err(1);
 								}
@@ -397,9 +291,6 @@ skip:;
 			case 'e': // [e]xecutable; text editor
 				p_exe_path = &argv[optind];
 				goto out;
-			case 's': // range from [s]tandard input
-				read_from_stdin = 1;
-				break;
 			case '?':
 				err(1);
 				break;
