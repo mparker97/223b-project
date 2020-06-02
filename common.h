@@ -12,6 +12,7 @@
 #define closec(x) do{close(x); x = 0;} while (0)
 
 #define ID_NONE (unsigned long)(-1)
+#define INVALID_SIZE_T (size_t)(-1)
 
 #define offset_of(t, m) ((size_t)&((t*)0)->m)
 #define container_of(p, t, m) ((t*)((char*)(p) - offset_of(t, m)))
@@ -27,11 +28,9 @@
 
 extern int* opts1_m;
 extern char** p_exe_path;
-extern char* file_path;
 extern struct range* input_range;
 extern char verbosity;
 extern int read_from_stdin;
-extern char mode;
 
 void err(int e){
 	// TODO: frees

@@ -21,14 +21,13 @@
 
 int* opts1_m = NULL;
 char** p_exe_path = NULL;
-char* file_path = NULL;
 A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
 char verbosity = 0;
 int read_from_stdin = 0;
-char mode = 0;
+static char mode = 0;
 
-void cp_bytes(int dst_fd, int src_fd, size_t sz){
-	char buf[CP_BYTES_BUF_SZ];
+void cp_bytes_count_lines(size_t* line_count, int dst_fd, int src_fd, size_t sz){
+	char buf[CP_BYTES_BUF_SZ + 1];
 	size_t i;
 	ssize_t r;
 	for (i = 0; i < sz; i += r){
@@ -39,11 +38,13 @@ void cp_bytes(int dst_fd, int src_fd, size_t sz){
 			closec(src_fd);
 			err(1);
 		}
+		*line_count += string_char_count(buf, '\n');
 		write(dst_fd, buf, r);
 	}
+	return line_count;
 }
 
-void cp_lines(int dst_fd, FILE* src_f, size_t line_count){
+void cp_lines_count_bytes(size_t* byte_count, int dst_fd, FILE* src_f, size_t line_count){
 	char* line = NULL;
 	size_t n;
 	ssize_t gl;
@@ -56,10 +57,12 @@ void cp_lines(int dst_fd, FILE* src_f, size_t line_count){
 			free(line);
 			err(1);
 		}
+		*byte_count += n;
 		write(dst_fd, line, gl);
 	}
 	if (line)
 		free(line);
+	return byte_count;
 }
 
 char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
@@ -104,12 +107,14 @@ ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off,
 
 void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
 	struct it_node* p_itn;
-	size_t src_pos = 0;
+	size_t src_pos = 0, line_count = 1;
 	it_foreach(&rf->it, p_itn){
-		cp_bytes(swp_fd, f_fd, p_itn->base - src_pos);
+		cp_bytes_count_lines(&line_count, swp_fd, f_fd, p_itn->base - src_pos);
 		write(swp_fd, oracle[0], oracle_len[0]);
-		cp_bytes(swp_fd, f_fd, p_itn->bound - p_itn->base);
+		p_itn->lbase = line_count;
+		cp_bytes_count_lines(&line_count, swp_fd, f_fd, p_itn->bound - p_itn->base);
 		write(swp_fd, oracle[1], oracle_len[1]);
+		p_itn->lbound = line_count;
 		src_pos = p_itn->bound;
 	}
 }
@@ -146,12 +151,12 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 		// I've had that there the whole time
 	swp_fd = open(swp_dir, O_RDWR | O_TMPFILE, S_IRWXU);
 	if (swp_fd < 0){
-		fprintf(stderr, "failed to create swap file for %s\n", rf->file_path);
+		fprintf(stderr, "Failed to create swap file for %s\n", rf->file_path);
 		close(f_fd);
 		err(1);
 	}
 	if (!(s = swap_file_path(swp_dir, rf->file_path))){
-		fprintf(stderr, "malloc failed\n");
+		fprintf(stderr, "Failed to malloc swap file name\n");
 		err(1);
 	}
 	
@@ -164,7 +169,7 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 	else{ // RANGE_FILE_MODE_LINE
 		add_oracle_lines(swp_fd, f_fd, rf, oracle, oracle_len);
 	}
-	cp_bytes(swp_fd, f_fd, f_stat.st_size - lseek(f_fd, 0, SEEK_SET));
+	cp_bytes_count_lines(swp_fd, f_fd, f_stat.st_size - lseek(f_fd, 0, SEEK_SET));
 	close(f_fd);
     snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
     linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
@@ -230,9 +235,10 @@ void exec_editor(char* f_path){
 	else if (f > 0){
 		waitpid(f, NULL, 0);
 		// TODO: push changes with each save somehow?
+		
 	}
 	else {
-		fprintf(stderr, "fork failed\n");
+		fprintf(stderr, "Fork failed\n");
 		err(1);
 	}
 }
@@ -372,7 +378,8 @@ skip:;
 						foreach_optarg(argc, argv){
 							get_range(&base, &bound, &m, argv[optind], r_mode);
 							for (i = 0; opts1_m[i] >= 0; i++){
-								if (!it_insert(&(ranges.arr[0].files[opts1_m[i]].it), base, bound)){
+								// Put either mode in base/bound for now & punt disambiguation to sql
+								if (!it_insert(&(ranges.arr[0].files[opts1_m[i]].it), base, bound, INVALID_SIZE_T, INVALID_SIZE_T)){
 									fprintf(stderr, "Failed to insert region [%lu, %lu)\n", base, bound); // only due to malloc as of now
 									err(1);
 								}
