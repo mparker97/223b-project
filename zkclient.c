@@ -1,3 +1,4 @@
+#include <errno.h>
 #include "interval_tree.h"
 #include "zkclient.h"
 
@@ -95,7 +96,7 @@ int zk_acquire_interval_lock(zk_lock_context_t *context) {
     }
 
     // get current version of file, or create one if it doesn't exist yet
-    char version_path[len(path) + 8];
+    char version_path[strlen(path) + 9];
     sprintf(version_path, "%s/version", path);
     exists = zoo_exists(zh, version_path, 0, &stat);
     count = 0;
@@ -113,7 +114,7 @@ int zk_acquire_interval_lock(zk_lock_context_t *context) {
     context->version = stat.version;
 
     // create subnode .../foo/interval if it doesn’t exist before
-    char interval_path[len(path) + 9];
+    char interval_path[strlen(path) + 10];
     sprintf(version_path, "%s/interval", path);
     exists = zoo_exists(zh, interval_path, 0, &stat);
     count = 0;
@@ -165,16 +166,38 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     context->lock_name = getLockName(full_path);
 
     // 2. GET CHILDREN, SHIFT INTERVALS AS NEEDED AND DISCARD THOSE NOT IN INTERVAL
-    it_node_t* 
+    int ret = 0;
+    it_node_t* conflict_intervals = _get_sorted_shifted_relevant_intervals(context, &ret);
+    // get children call failed in the helper function
+    if (*ret != ZOK) {
+        return *ret;
+    }
 
 }
 
-static it_node_t* _get_relevant_intervals(zk_lock_context_t* context) {
-    // get all existing intervals
-    // get shift logs
-    // replay shift logs
+static it_node_t* _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, int* ret) {
+    // get all existing interval locks
+    struct String_vector all_intervals;
+    all_intervals.data = NULL;
+    all_intervals.count = 0;
+    char interval_path[strlen(context->parent_path) + 10];
+    sprintf(interval_path, "%s/interval", context->parent_path);
+    *ret = zoo_get_children(zh, interval_path, 0, &all_intervals);
+    if (*ret != ZOK) {
+        return NULL;
+    }
+
+    // get interval tree from mysql for this file
+
     // discard intervals not relevant to current context
-    // return array of intervals sorted by sequence number
+    it_node_t cur_interval = {
+        .base = context->base,
+        .bound = context->base + context->size - 1,
+        .version = context->version,
+        .sequence = getSequenceNumber(context->lock_name)
+    };
+
+    // return array of relevant intervals sorted by sequence number
 }
 
 // HELPER UTIL FUNCTIONS
@@ -186,6 +209,22 @@ static char* getLockName(char* str) {
     if (name == NULL) 
         return NULL;
     return strdup(name + 1);
+}
+/**
+ * get the sequence number from the lock_name returned from zookeeper
+ */
+static size_t getSequenceNumber(char* lock_name) {
+    char* lock_name = strrchr(lock_name, '/');
+    if (lock_name == NULL) 
+        return 0;
+
+    char* endptr;
+    errno = 0;
+    size_t ret = strtoul(lock_name, &endptr, 10);
+    if (errno != 0 || *endptr != 0) 
+        return 0;
+
+    return ret;
 }
 
 // TODO test

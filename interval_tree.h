@@ -21,7 +21,6 @@ typedef struct it_node{
 	//	char* r_bound;
 	//};
 	// used for zookeeper
-	size_t version;
 	size_t sequence;
 } it_node_t;
 
@@ -45,6 +44,7 @@ void it_deinit(struct it_head* it){
 }
 
 int it_intersect(struct it_node* a, struct it_node* b){
+	// should be ||?
 	if (a->base <= b->bound && b->base <= a->bound)
 		return 1;
 	return 0;
@@ -104,6 +104,11 @@ void print_it(struct it_node* it, char* tab_buf){
 	tab_out(tab_buf,
 		printf("%sBase: %lu; Bound: %lu\n", tab_buf, it->base, it->bound);
 	);
+}
+
+// sort array of it_nodes by the sequence number
+void sort_intervals_array_by_sequence(it_node_t* intervals) {
+	// TODO
 }
 
 #endif
