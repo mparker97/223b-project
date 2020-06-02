@@ -12,14 +12,8 @@
 typedef struct it_node{
 	struct l_list ls;
 	unsigned long id;
-	//union{
-		size_t base;
-	//	char* r_base;
-	//};
-	//union{
-		size_t bound;
-	//	char* r_bound;
-	//};
+	size_t base;
+	size_t bound;
 	// used for zookeeper
 	size_t sequence;
 } it_node_t;

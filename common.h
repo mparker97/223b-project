@@ -12,6 +12,7 @@
 #define closec(x) do{close(x); x = 0;} while (0)
 
 #define ID_NONE (unsigned long)(-1)
+#define INVALID_SIZE_T (size_t)(-1)
 
 #define offset_of(t, m) ((size_t)&((t*)0)->m)
 #define container_of(p, t, m) ((t*)((char*)(p) - offset_of(t, m)))
@@ -27,28 +28,11 @@
 
 extern int* opts1_m;
 extern char** p_exe_path;
-extern char* file_path;
 extern struct range* input_range;
-extern char verbosity;
-extern int read_from_stdin;
-extern char mode;
 
 void err(int e){
 	// TODO: frees
 	exit(e);
-}
-
-void print(const char* a, const char* b, ...){
-	va_list args;
-	if (verbosity == 0){
-		va_start(args, a);
-		vfprintf(stdout, a, args);
-	}
-	else if (verbosity == 'v'){
-		va_start(args, b);
-		vfprintf(stdout, b, args);
-	}
-	va_end(args);
 }
 
 void do_print_range(struct range* r){
@@ -113,11 +97,13 @@ union{ \
 extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
 
 void* a_list_init(struct a_list* ls, size_t elm_sz){
-	if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
-		return NULL;
+	if (!ls->ls){
+		if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
+			return NULL;
+		}
+		ls->sz = 0;
 	}
-	ls->sz = 0;
-	return ls;
+	return ls->ls;
 }
 
 void* a_list_add(struct a_list* ls, size_t elm_sz){
