@@ -113,11 +113,13 @@ union{ \
 extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
 
 void* a_list_init(struct a_list* ls, size_t elm_sz){
-	if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
-		return NULL;
+	if (!ls->ls){
+		if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
+			return NULL;
+		}
+		ls->sz = 0;
 	}
-	ls->sz = 0;
-	return ls;
+	return ls->ls;
 }
 
 void* a_list_add(struct a_list* ls, size_t elm_sz){

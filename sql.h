@@ -3,6 +3,7 @@
 #include "range.h"
 
 int query_select_named_range(struct range* r, char* name);
+int query_select_file_intervals(struct range_file* rf, char* file_path);
 int query_insert_named_range(struct range* r);
 int query_resize_file(struct range_file* f);
 
@@ -26,6 +27,8 @@ CREATE TABLE Offset (
 	OffsetId LONG SERIAL,
 	Base LONG NOT NULL,
 	Bound LONG NOT NULL,
+	Mode CHAR NOT NULL,
+	Conflict BOOL DEFAULT FALSE,
 	FileId LONG NOT NULL,
 	FOREIGN KEY (FileId) REFERENCES File(FileId) ON DELETE CASCADE
 );
