@@ -437,7 +437,7 @@ int query_resize_file(struct range_file* rf){
 		fail_check(!mysql_stmt_execute(stmt[3]));
 		p_itn->base = base; // update it_node's field with new base
 	}
-	// TODO: write to file at the same time? Should definitely be done w/i transaction
+	// TODO: write to file / TODO: ZOOKEEPER HERE?
 	
 	TXN_COMMIT;
 	goto pass;

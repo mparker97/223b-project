@@ -172,6 +172,7 @@ int push_swap_file(int swp_fd, struct range_file* rf){ // oracle w/o \n
 		//total_change += o_close - (p_itn->bound);
 		// must keep old bound for resize file query
 			// However, don't need old base, so replace it with new bound
+			// Bound stays as the old bound
 		p_itn->base = o_close - i * oracle_len[0];
 		i++;
 	}
@@ -180,8 +181,8 @@ int push_swap_file(int swp_fd, struct range_file* rf){ // oracle w/o \n
 	goto pass;
 rexec:
 	ret = -2;
-	close(backing_fd);
 pass:
+	close(backing_fd);
 	return ret;
 }
 
@@ -199,45 +200,63 @@ int exec_editor(char* f_path){
 		execvp(p_exe_path[-1], &p_exe_path[-1]);
 		err_out(true, "Failed to run executable %s\n", tmp);
 	}
+	else{
+		waitpid(f, NULL, 0);
+	}
 	return f;
 }
 
-void open_files(struct range* r){ // TODO: just put on one thread for each file
-	int i, j swp_fd;
+struct open_files_thread{
+	pthread_t thd;
+	struct range_file* rf;
+};
+
+void* open_files_func(void* arg){
 	char path[PATH_MAX];
-	siginfo_t si;
-	int* pids = malloc(r->num_files * sizeof(int) * 2);
-	for (i = 0; i < r->num_files; i++){
-		swp_fd = pids[i + r->num_files] = pull_swap_file(&r->files[i]);
-		if (swp_fd < 0){
-			fprintf(stder, "Failed to pull file %s\n", r->files[i].file_path);
-			goto fail;
-		}
-		get_path_by_fd(path, swp_fd);
-		if (!path){
-			fprintf(stderr, "Failed to resolve swap file path\n");
-			goto fail;
-		}
-		pids[i] = exec_editor(path);
-		if (pids[i] < 0){
-			goto fail;
-		}
+	struct open_files_thread* oft = (struct open_files_thread*)arg;
+	int i, swp_fd;
+	swp_fd = pull_swap_file(oft->rf);
+	if (swp_fd < 0){
+		fprintf(stder, "Failed to pull file %s\n", oft->rf->file_path);
+		goto fail;
 	}
-	for (i = 0; i < r->num_files; i++){
-		waitid(P_ALL, 0, &si, 0);
-		for (j = 0; j < r->num_files; j++){
-			if (pids[j] == si.si_pid){
-				push_swap_file(pids[j + r->files], &r->files[j]);
-				break;
-			}
-		}
+	get_path_by_fd(path, swp_fd);
+	if (!path){
+		fprintf(stderr, "Failed to resolve swap file path for %s\n", oft->rf->file_path);
+		goto fail;
 	}
-	free(pids);
-	return;
+	do{
+		if (exec_editor(path) < 0){
+			goto fail;
+		}
+		i = push_swap_file(swp_fd, oft->rf);
+		if (i == -1){
+			goto fail;
+		}
+	} while (i < 0);
+	if (query_resize_file(oft->rf) < 0){
+		goto fail;
+	}
+	return (void*)1;
 fail:
-	if (pids)
-		free(pids);
-	err(1);
+	return NULL;
+}
+
+void open_files(struct range* r){
+	int i, j;
+	int* thds = malloc(r->num_files * sizeof(struct open_files_thread));
+	int* retval;
+	err_out(!thds, "Malloc open files threads failed\n");
+	for (i = 0; i < r->num_files; i++){
+		thds[i].rf = &r->files[i];
+		pthread_create(&thds[i].thd, NULL, open_files_func, &thds[i]);
+		
+	}
+	for (i = 0; i < r->num_files; i++){
+		pthread_join(thds[i].thd, &retval);
+	}
+	if (thds)
+		free(thds);
 }
 
 void get_range(size_t* base, size_t* bound, char* str){
@@ -341,13 +360,15 @@ skip_add_file:;
 				}
 				i++;
 			}
+			free(fs);
 			err_out(!i, "No file specified\n");
+			query_insert_named_range(&ranges.arr[0]);
 			break;
 		case 'p': // [p]rint
 			for(;;){
 				c = getopt(argc, argv, "+f:g:r:");
 				optind--;
-				switch (c){
+				switch (c){ // I realize I could have just printed them on the fly... oh well
 					case 'f':
 						foreach_optarg(argc, argv){
 							cp = a_list_add(&files.ls, sizeof(char*));
@@ -367,6 +388,24 @@ skip_add_file:;
 						goto out;
 				}
 			}
+			out:
+			for (i = 0; i < ranges.num_ranges; i++){
+				if (query_select_named_range(&ranges.arr[i]) >= 0){
+					do_print_range(&ranges.arr[i]);
+				}
+				else{
+					fprintf(stderr, "Unable to print range %s\n", ranges.arr[i].name);
+				}
+			}
+			for (i = 0; i < files.num_files; i++){
+				it_deinit(&global_rf.it); // init covered by deinit
+				if (query_select_file_intervals(&global_rf, files.arr[i]) >= 0){
+					do_print_file(&global_rf);
+				}
+				else{
+					fprintf(stderr, "Unable to print file %s\n", fiels.arr[i]);
+				}
+			}
 			break;
 		case '?':
 			err(1);
@@ -376,9 +415,6 @@ skip_add_file:;
 			err(1);
 			break;
 	}
-out:
-	if (fs)
-		free(fs);
 }
 
 int main(int argc, char* argv[]){

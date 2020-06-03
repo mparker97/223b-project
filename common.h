@@ -60,6 +60,12 @@ void do_print_range(struct range* r){
 	print_range(r, tab_buf);
 }
 
+void do_print_file(struct range_file* rf){
+	char tab_buf[8];
+	tab_buf[0] = 0;
+	print_file(r, tab_buf);
+}
+
 ssize_t substrn(const char* str, size_t str_len, char* src, size_t src_len){ // find a leading portion of str (nonzero length str_len) in src (length src_len); return index of start
 	size_t i, j;
 	for (i = j = 0; i < src_len; i++){
