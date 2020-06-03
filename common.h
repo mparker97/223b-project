@@ -30,6 +30,7 @@
 extern char** p_exe_path;
 extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
 extern A_LIST_UNION(char*, arr, num_files, ls) files;
+extern struct range_file global_rf;
 
 void err(int e){
 	int i;
@@ -38,6 +39,7 @@ void err(int e){
 	}
 	a_list_deinit(&ranges.ls);
 	a_list_deinit(&files.ls);
+	it_deinit(&global_rf.it);
 	// other frees
 	exit(e);
 }
@@ -56,6 +58,12 @@ void do_print_range(struct range* r){
 	char tab_buf[8];
 	tab_buf[0] = 0;
 	print_range(r, tab_buf);
+}
+
+void do_print_file(struct range_file* rf){
+	char tab_buf[8];
+	tab_buf[0] = 0;
+	print_file(r, tab_buf);
 }
 
 ssize_t substrn(const char* str, size_t str_len, char* src, size_t src_len){ // find a leading portion of str (nonzero length str_len) in src (length src_len); return index of start
@@ -101,6 +109,7 @@ struct a_list{ // "amortized" list (contiguous array); initial size of A_LIST_IN
 	void* ls;
 	int sz;
 };
+// delete is O(n) because I don't care
 
 #define A_LIST_UNION(t, n0, n1, n2) \
 union{ \
@@ -112,6 +121,8 @@ union{ \
 }
 
 extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
+
+#define a_list_index(list, elm_sz, i) ((char*)((list)->ls) + (i) * (elm_sz))
 
 void* a_list_init(struct a_list* ls, size_t elm_sz){
 	if (!ls->ls){
@@ -145,6 +156,22 @@ void* a_list_addc(struct a_list* ls, size_t elm_sz){
 		memset(r, 0, elm_sz);
 	}
 	return r;
+}
+
+int a_list_delete(struct a_list* ls, size_t elm_sz, int idx){ // & shift
+	int ret = -1;
+	char* c;
+	if (idx >= 0){
+		for (c = a_list_index(ls, elm_sz, idx); c < a_list_index(ls, elm_sz, ls->sz - 1); c += elm_sz){
+			memcpy(c, c + elm_sz, elm_sz);
+		}
+		ls->sz--;
+	}
+	return &ls->ls[ls->sz++];
+}
+
+void a_list_sort(struct a_list* ls, elm_sz, int (*f)(void* void*)){
+	qsort(ls->ls, ls->sz, elm_sz, f);
 }
 
 #endif
