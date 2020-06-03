@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -I.
 HS = common.h range.h interval_tree.h sql.h help.h
 OS = main.o sql.o
-LIBS = -lmysql
+LIBS = -lmysql -lpthread
 
 %.o: %.c $(HS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS)
