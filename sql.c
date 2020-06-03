@@ -192,7 +192,7 @@ void close_stmts(MYSQL_STMT* stmt, int n){
 			mysql_stmt_close(stmt[i]);
 }
 
-int query_select_named_range(struct range* r, char* name){
+int query_select_named_range(struct range* r){ // range already has r->name
 	#define NUM_STMT 1
 	#define NUM_BIND 7
 	int ret = 0, succ;
@@ -208,7 +208,7 @@ int query_select_named_range(struct range* r, char* name){
 	bool null, error;
 	
 	old_buf[0] = 0;
-	len = strlen(name);
+	len = strlen(r->name);
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, &null, true, &error); // File.FileId
 	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, PATH_MAX, &len, &null, true, &error); // File.FilePath
@@ -216,30 +216,28 @@ int query_select_named_range(struct range* r, char* name){
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &bound, sizeof(size_t), NULL, &null, true, &error); // Offset.Bound
 	mysql_bind_init(bind[5], MYSQL_TYPE_TINY, &conflict, sizeof(char), NULL, &null, true, &error); // Offset.Conflict
-	mysql_bind_init(bind[6], MYSQL_TYPE_STRING, name, len, &len, (bool*)0, true, &error); // Range.Name
+	mysql_bind_init(bind[6], MYSQL_TYPE_STRING, r->name, len, &len, (bool*)0, true, &error); // Range.Name
 	
 	if (!pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0])){
 		if (!mysql_stmt_execute(stmt[0])){
 			if (!mysql_stmt_store_result(stmt[0])){
-				if (!range_init(r, name)){ // no harm if already init'd
-					for (;;){
-						succ = mysql_stmt_fetch(stmt[0]);
-						fail_check(succ == 1);
-						if (succ == MYSQL_NO_DATA){
-							break;
-						}
-						if (!strncmp(old_buf, buf, len){ // different file; add it
-							memcpy(old_buf, buf, len);
-							oldbuf[len + 1] = 0;
-							rf = range_add_file(r, old_buf, fileId);
-							fail_check(rf);
-						}
-						if (conflict){
-							printf("Warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
-						}
-						if (!it_insert(&rf->it, base, bound, offsetId)){
-							goto fail;
-						}
+				for (;;){
+					succ = mysql_stmt_fetch(stmt[0]);
+					fail_check(succ == 1);
+					if (succ == MYSQL_NO_DATA){
+						break;
+					}
+					if (!strncmp(old_buf, buf, len){ // different file; add it
+						memcpy(old_buf, buf, len);
+						oldbuf[len + 1] = 0;
+						rf = range_add_file(r, old_buf, fileId);
+						fail_check(rf);
+					}
+					if (conflict){
+						printf("Warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
+					}
+					if (!it_insert(&rf->it, base, bound, offsetId)){
+						goto fail;
 					}
 				}
 			}

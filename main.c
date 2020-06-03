@@ -19,9 +19,12 @@
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
-char** p_exe_path = NULL;
+char** p_exe_path;
 A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
 A_LIST_UNION(char*, arr, num_files, ls) files;
+struct range_file global_rf;
+static char swp_dir[PATH_MAX];
+static char oracle[] = {"/*OPEN_ORACLE*/", "/*CLOSE_ORACLE*/"};
 static char mode = 0;
 
 void cp_bytes(int dst_fd, int src_fd, size_t sz){
@@ -51,12 +54,16 @@ char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // fre
 	return ret;
 }
 
-void unlink_by_fd(int fd){
+void get_path_by_fd(char* path, int fd){
 	char buf[32];
-	char* path;
     snprintf(buf, 32, "/proc/self/fd/%d", fd);
 	path = realpath(buf, NULL);
-	err_out(!path, "realpath failed on %s\n", buf);
+}
+
+void unlink_by_fd(int fd){
+	char* path = NULL;
+	get_path_by_fd(path, fd):
+	err_out(!path, "Failed to unlink fd %d\n", fd);
     unlink(path);
 	free(path);
 }
@@ -91,56 +98,66 @@ void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle
 	}
 }
 
-int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_dir is absolute // oracle with \n at end
-	int swp_fd, f_fd;
+int pull_swap_file(, struct range_file* rf){ // swp_dir is absolute // oracle with \n at end
+	int swp_fd = 0, backing_fd = 0;
 	char* s;
 	struct stat f_stat;
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
 	char path[32];
 
-	f_fd = open(rf->file_path, O_RDWR);
-	err_out(f_fd < 0, "Failed to open %s\n", rf->file_path);
-	// O_TMPFILE flag is giving a compile error -- it looks like it needs this define:
-	// #define _GNU_SOURCE
-		// I've had that there the whole time
+	if (!(s = swap_file_path(swp_dir, rf->file_path))){
+		fprintf(stderr, "Failed to malloc swap file name for %s\n", rf->file_path);
+		goto fail;
+	}
+	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
+	if (backing_fd < 0){
+		fprintf(stderr, "Failed to open %s\n", rf->file_path);
+		goto fail;
+	}
 	swp_fd = open(swp_dir, O_RDWR | O_TMPFILE, S_IRWXU);
 	if (swp_fd < 0){
 		fprintf(stderr, "Failed to create swap file for %s\n", rf->file_path);
-		close(f_fd);
-		err(1);
-	}
-	if (!(s = swap_file_path(swp_dir, rf->file_path))){
-		fprintf(stderr, "Failed to malloc swap file name\n");
-		close(f_fd);
-		close(swp_fd);
-		err(1);
+		goto fail;
 	}
 	
-	fstat(f_fd, &f_stat);
+	fstat(backing_fd, &f_stat);
 	oracle_len[0]--;
 	oracle_len[1]--;
-	add_oracle_bytes(swp_fd, f_fd, rf, oracle, oracle_len);
-	cp_bytes(swp_fd, f_fd, f_stat.st_size - lseek(f_fd, 0, SEEK_SET));
+	add_oracle_bytes(swp_fd, backing_fd, rf, oracle, oracle_len);
+	cp_bytes(swp_fd, backing_fd, f_stat.st_size - lseek(backing_fd, 0, SEEK_SET));
 	
-	close(f_fd);
+	close(backing_fd);
     snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
     linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
 	free(s);
 	return swp_fd;
+fail:
+	if (backing_fd >= 0)
+		close(backing_fd);
+	if (swp_fd >= 0);
+		close(swp_fd);
+	if (s)
+		free(s);
+	err(1);
+	return -1;
 }
 
-void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle w/o \n
-	int f_fd, i = 0;
+int push_swap_file(int swp_fd, struct range_file* rf){ // oracle w/o \n
+	int ret = 0, backing_fd, i = 0;
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
 	size_t nl_count = 1;
-	f_fd = open(rf->file_path, O_RDWR);
-	err_out(f_fd < 0, "Failed to open %s\n", rf->file_path);
+	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
+	if (backing_fd < 0){
+		fprintf(stderr, "Failed to open %s\n", rf->file_path);
+		ret = -1;
+		goto pass; // really fail
+	}
 	it_foreach(&rf->it, p_itn){
 		o_open = oracle_search(swp_fd, oracle[0], oracle_len[0], o_close + oracle_len[0], &nl_count);
 		if (o_open < 0){
-			fprintf(stderr, "Failed to find opening oracle for range %d\n", i);
+			fprintf(stderr, "Failed to find opening oracle:\n\t%s\nfor range %d\n", oracle[0], i);
 			goto rexec;
 		}
 		/*else if (o_open != p_itn->base + total_change){
@@ -149,7 +166,7 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 		}*/
 		o_close = oracle_search(swp_fd, oracle[1], oracle_len[1], o_open + oracle_len[0], &nl_count);
 		if (o_close < 0){
-			fprintf(stderr, "Failed to find closing oracle for range %d\n", i);
+			fprintf(stderr, "Failed to find closing oracle:\n\t%s\nfor range %d\n", oracle[1], i);
 			goto rexec;
 		}
 		//total_change += o_close - (p_itn->bound);
@@ -160,15 +177,21 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 	}
 	// unlink_by_fd(swp_fd); // to remove swap file
 	//close(swp_fd);
-	close(f_fd);
+	goto pass;
 rexec:
-	exec_editor(rf->file_path); // TODO: maybe move this to caller?
+	ret = -2;
+	close(backing_fd);
+pass:
+	return ret;
 }
 
-void exec_editor(char* f_path){
+int exec_editor(char* f_path){
 	char* tmp;
 	int f = fork();
-	err_out(f < 0, "Fork failed\n");
+	if (f < 0){
+		fprintf(stderr, "Fork failed\n");
+		return -1;
+	}
 	if (f == 0){
 		// squeeze in file between exe and args
 		p_exe_path[-1] = p_exe_path[0];
@@ -176,11 +199,45 @@ void exec_editor(char* f_path){
 		execvp(p_exe_path[-1], &p_exe_path[-1]);
 		err_out(true, "Failed to run executable %s\n", tmp);
 	}
-	else if (f > 0){
-		waitpid(f, NULL, 0);
-		// TODO: push changes with each save somehow?
-		
+	return f;
+}
+
+void open_files(struct range* r){ // TODO: just put on one thread for each file
+	int i, j swp_fd;
+	char path[PATH_MAX];
+	siginfo_t si;
+	int* pids = malloc(r->num_files * sizeof(int) * 2);
+	for (i = 0; i < r->num_files; i++){
+		swp_fd = pids[i + r->num_files] = pull_swap_file(&r->files[i]);
+		if (swp_fd < 0){
+			fprintf(stder, "Failed to pull file %s\n", r->files[i].file_path);
+			goto fail;
+		}
+		get_path_by_fd(path, swp_fd);
+		if (!path){
+			fprintf(stderr, "Failed to resolve swap file path\n");
+			goto fail;
+		}
+		pids[i] = exec_editor(path);
+		if (pids[i] < 0){
+			goto fail;
+		}
 	}
+	for (i = 0; i < r->num_files; i++){
+		waitid(P_ALL, 0, &si, 0);
+		for (j = 0; j < r->num_files; j++){
+			if (pids[j] == si.si_pid){
+				push_swap_file(pids[j + r->files], &r->files[j]);
+				break;
+			}
+		}
+	}
+	free(pids);
+	return;
+fail:
+	if (pids)
+		free(pids);
+	err(1);
 }
 
 void get_range(size_t* base, size_t* bound, char* str){
@@ -201,7 +258,7 @@ void opts(int argc, char* argv[]){
 	struct range_file* rf = NULL;
 	size_t base, bound;
 	int i = 0, j, k, l;
-	struct range_file* fs = NULL;
+	struct range_file** fs = NULL;
 	char* buf = "+f:\0+r:";
 	char** cp;
 	char c = getopt(argc, argv, "+g:hn:pr:w:");
@@ -216,10 +273,17 @@ void opts(int argc, char* argv[]){
 				optind++;
 			}
 			foreach_optarg(argc, argv){
-				err_out(range_add_new_file(&ranges.arr[0], argv[optind], ID_NONE) < 0, "Failed to capture file %s\n", argv[optind]);
+				cp = a_list_add(&files.ls, sizeof(char*));
+				err_out(!cp, "Failed to capture file %s\n", argv[optind]);
+				*cp = &argv[optind];
 				i++;
 			}
-			err_out(!i, "No file specified\n");
+			err_out(query_select_named_range(&ranges[0]) < 0);
+			/*if (i){
+				a_list_sort(&files.ls, sizeof(char*), COMP_STRING);
+				
+			}*/
+			open_files(&ranges[0]);
 			break;
 		case 'n': // i[n]sert
 			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
@@ -238,7 +302,7 @@ void opts(int argc, char* argv[]){
 			err_out(!i, "No file specified\n");
 			break;
 		case 'g': // new ran[g]e
-			fs = malloc(argc * sizeof(struct range_file));
+			fs = malloc(argc * sizeof(struct range_file*));
 			err_out(!fs, "Too many arguments\n");
 			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
 			fs[0] = NULL;
@@ -280,14 +344,13 @@ skip_add_file:;
 			err_out(!i, "No file specified\n");
 			break;
 		case 'p': // [p]rint
-			a_list_init(&files->ls, sizeof(char*));
 			for(;;){
 				c = getopt(argc, argv, "+f:g:r:");
 				optind--;
 				switch (c){
 					case 'f':
 						foreach_optarg(argc, argv){
-							cp = a_list_add(&files->ls, sizeof(char*));
+							cp = a_list_add(&files.ls, sizeof(char*));
 							err_out(!cp, "Failed to capture file %s\n", argv[optind]);
 							*cp = &argv[optind];
 						}
@@ -295,7 +358,7 @@ skip_add_file:;
 					case 'g':
 					case 'r':
 						foreach_optarg(argc, argv){
-							cp = a_list_add(&ranges->ls, sizeof(struct range*));
+							cp = a_list_add(&ranges.ls, sizeof(struct range*));
 							err_out(!cp, "Failed to capture range %s\n", argv[optind]);
 							err_out(range_init((struct range*)cp, argv[optind]) < 0, "Failed to capture range %s\n", argv[optind]);
 						}
@@ -323,9 +386,12 @@ int main(int argc, char* argv[]){
 		print_usage(argv[0]);
 		err(0);
 	}
-	a_list_init(&ranges.ls, sizeof(struct range));
+	err_out(!a_list_init(&ranges.ls, sizeof(struct range))
+		|| !a_list_init(&files.ls, sizeof(char*))
+		|| !getcwd(buf, PATH_MAX), "Failed to initialize\n");
+	it_init(&global_rf.it);
 	opts(argc, argv);
 	
-	// TODO
+	// TODO?
 	return 0;
 }
