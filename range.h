@@ -26,8 +26,8 @@ void range_deinit(struct range* r){
 			free(r->files[i].file_path);
 			it_deinit(&r->files[i].it);
 		}
-		freec(r->files);
 	}
+	a_list_deinit(&r->ls);
 }
 
 int range_init(struct range* r, char* name){
@@ -67,7 +67,7 @@ int range_add_new_file(struct range* r, char* file_path, unsigned long id){
 			return -1;
 		}
 	}
-	return range_add_file(r, file_path, id, mode);
+	return range_add_file(r, file_path, id);
 }
 
 void print_file(struct range_file* rf, char* tab_buf){

@@ -19,9 +19,9 @@
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
-int* opts1_m = NULL;
 char** p_exe_path = NULL;
 A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
+A_LIST_UNION(char*, arr, num_files, ls) files;
 static char mode = 0;
 
 void cp_bytes(int dst_fd, int src_fd, size_t sz){
@@ -55,10 +55,8 @@ void unlink_by_fd(int fd){
 	char buf[32];
 	char* path;
     snprintf(buf, 32, "/proc/self/fd/%d", fd);
-	if (!(path = realpath(buf, NULL))){
-		fprintf(stderr, "realpath failed on %s\n", buf);
-		err(1);
-	}
+	path = realpath(buf, NULL);
+	err_out(!path, "realpath failed on %s\n", buf);
     unlink(path);
 	free(path);
 }
@@ -101,10 +99,7 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 	char path[32];
 
 	f_fd = open(rf->file_path, O_RDWR);
-	if (f_fd < 0){
-		fprintf(stderr, "Failed to open %s\n", rf->file_path);
-		err(1);
-	}
+	err_out(f_fd < 0, "Failed to open %s\n", rf->file_path);
 	// O_TMPFILE flag is giving a compile error -- it looks like it needs this define:
 	// #define _GNU_SOURCE
 		// I've had that there the whole time
@@ -116,6 +111,8 @@ int pull_swap_file(char* swp_dir, struct range_file* rf, char** oracle){ // swp_
 	}
 	if (!(s = swap_file_path(swp_dir, rf->file_path))){
 		fprintf(stderr, "Failed to malloc swap file name\n");
+		close(f_fd);
+		close(swp_fd);
 		err(1);
 	}
 	
@@ -139,10 +136,7 @@ void push_swap_file(int swp_fd, struct range_file* rf, char** oracle){ // oracle
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
 	size_t nl_count = 1;
 	f_fd = open(rf->file_path, O_RDWR);
-	if (f_fd < 0){
-		fprintf(stderr, "Failed to open %s\n", rf->file_path);
-		err(1);
-	}
+	err_out(f_fd < 0, "Failed to open %s\n", rf->file_path);
 	it_foreach(&rf->it, p_itn){
 		o_open = oracle_search(swp_fd, oracle[0], oracle_len[0], o_close + oracle_len[0], &nl_count);
 		if (o_open < 0){
@@ -174,22 +168,18 @@ rexec:
 void exec_editor(char* f_path){
 	char* tmp;
 	int f = fork();
+	err_out(f < 0, "Fork failed\n");
 	if (f == 0){
 		// squeeze in file between exe and args
 		p_exe_path[-1] = p_exe_path[0];
 		p_exe_path[0] = f_path;
 		execvp(p_exe_path[-1], &p_exe_path[-1]);
-		fprintf(stderr, "Failed to run executable %s\n", tmp);
-		err(1);
+		err_out(true, "Failed to run executable %s\n", tmp);
 	}
 	else if (f > 0){
 		waitpid(f, NULL, 0);
 		// TODO: push changes with each save somehow?
 		
-	}
-	else {
-		fprintf(stderr, "Fork failed\n");
-		err(1);
 	}
 }
 
@@ -198,167 +188,122 @@ void get_range(size_t* base, size_t* bound, char* str){
 	if (str = strchr(str, ',')){
 		if (str[1]){
 			*bound = atol(str + 1);
-			if (*bound <= *base){
-				fprintf(stderr, "Invalid region: base %lu, bound %lu\n", *base, *bound);
-				err(1);
-			}
-			*bound;
+			err_out(*bound <= *base, "Invalid region: base %lu, bound %lu\n", *base, *bound);
 			return;
 		}
+		*base = (size_t)(-1);
 	}
 	fprintf(stderr, "Malformed region: \"%s\"\n", str);
 	err(1);
 }
 
-void opts1(int argc, char* argv[]){
-	int i = -1, j;
+void opts(int argc, char* argv[]){
+	struct range_file* rf = NULL;
 	size_t base, bound;
-	char c;
-	opts1_m = malloc(argc * sizeof(int));
-	if (!opts1_m){
-		fprintf(stderr, "Too many arguments\n");
-		err(1);
-	}
-	while ((c = getopt(argc, argv, "+e:f:qr:sv")) != -1){
-		// TODO: separate op strings for each mode!
-		switch (c){
-			case 'f': // [f]iles
-				switch (mode){
-					// TODO: figure out what is allowed for which modes
-					case 'n':
-						if (optind < argc && argv[optind][0] != '-'){ // argument after the argument for '-f' is NOT another option argument: this implies more than one argument for '-f'
-							fprintf(stderr, "n mode may only have one file\n");
-							err(1);
-						}
-					case 'g':
-						if (i < 0){ // came from range option; clear file set
-							opts1_m[0] = -1;
-						}
-						optind--;
-						foreach_optarg(argc, argv){
-							j = range_add_new_file(&ranges.arr[0], argv[optind], ID_NONE);
-							if (j < 0){
-								fprintf(stderr, "Failed to add file %s\n", argv[optind]);
-								err(1);
-							}
-							for (i = 0; opts1_m[i] >= 0; i++){
-								if (opts1_m[i] == j){
-									goto skip; // file already in this set; skip
-								}
-							}
-							opts1_m[i] = j; // new file for this set; add to end
-							opts1_m[i + 1] = -1;
-skip:;
-						}
-						if (opts1_m[0] < 0){
-							fprintf(stderr, "%s: option requires an argument -- 'r'\n", argv[0]);
-							err(1);
-						}
-						break;
-					case 'w':
-					case 'p':
-						fprintf(stderr, "Invalid option 'f' for mode '%c'\n", mode);
-						err(1);
-						break;
-				}
-				break;
-			case 'r': // [r]anges
-				switch (mode){
-					case 'n':
-					case 'g':
-						if (ranges.num_ranges == 0){
-							fprintf(stderr, "No range name specified\n");
-							err(1);
-						}
-						foreach_optarg(argc, argv){
-							get_range(&base, &bound, argv[optind]);
-							for (i = 0; opts1_m[i] >= 0; i++){
-								if (!it_insert(&(ranges.arr[0].files[opts1_m[i]].it), base, bound)){
-									fprintf(stderr, "Failed to insert region [%lu, %lu)\n", base, bound); // only due to malloc as of now
-									err(1);
-								}
-							}
-						}
-						i = -1;
-						break;
-					case 'w':
-					case 'p':
-						fprintf(stderr, "Invalid option 'r' for mode '%c'\n", mode);
-						err(1);
-						break;
-				}
-				break;
-			case 'e': // [e]xecutable; text editor
-				p_exe_path = &argv[optind];
-				goto out;
-			case '?':
-				err(1);
-				break;
-		}
-	}
-	/*if (mode == 'p'){
-		for (i = 0; i < ranges.num_ranges; i++){
-			do_print_range(&ranges.arr[i]);
-		}
-	}*/
-	if (optind < argc){
-		if (p_exe_path == NULL){
-			p_exe_path = &argv[optind]; // rest are exe args
-		}
-	}
-	if (p_exe_path == NULL){
-		fprintf(stderr, "Executable not specified\n");
-		print_usage(argv[0]);
-		err(0);
-	}
-	freec(opts1_m);
-	
-}
-
-void opts0(int argc, char* argv[]){
-	struct range* r, i;
-	char c = getopt(argc, argv, "+cg:hin:p:r:w:");
+	int i = 0, j, k, l;
+	struct range_file* fs = NULL;
+	char* buf = "+f:\0+r:";
+	char** cp;
+	char c = getopt(argc, argv, "+g:hn:pr:w:");
 	switch (c){
 		case 'h': // [h]elp
 			print_help(argv[0]);
 			break;
 		case 'r': // [r]ead
 		case 'w': // [w]rite
-		case 'n': // i[n]sert
-		case 'g': // new ran[g]e
-		case 'p': // [p]rint
-			if (mode != 0 && mode != c){
-				fprintf(stderr, "Incompatible options: %c and %c\n", c, mode);
-				err(1);
+			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
+			if (argv[optind] == '-f'){
+				optind++;
 			}
-			if (c != 'p' && optind < argc && argv[optind][0] != '-'){
-				fprintf(stderr, "Only one named range may be selected for mode %c\n", c);
-				err(1);
-			}
-			mode = c;
-			optind--;
 			foreach_optarg(argc, argv){
-				for (i = 0; i < ranges.num_ranges; i++){
-					if (!strcmp(ranges.arr[i].name, argv[optind])){
-						goto next_arg;
-					}
-				}
-				r = a_list_addc(&ranges.ls, sizeof(struct range));
-				if (r == NULL){
-					fprintf(stderr, "Failed to add named range %s\n", argv[optind]);
-					err(1);
-				}
-				r->name = argv[optind];
-				r->id = ID_NONE;
-next_arg:;
+				err_out(range_add_new_file(&ranges.arr[0], argv[optind], ID_NONE) < 0, "Failed to capture file %s\n", argv[optind]);
+				i++;
 			}
+			err_out(!i, "No file specified\n");
 			break;
-		case 'c': // [c]leanup
-			
+		case 'n': // i[n]sert
+			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
+			while (getopt(argc, argv, "+f:") == 'f'){
+				rf = range_add_new_file(&ranges.arr[0], optarg, ID_NONE);
+				err_out(!rf, "Failed capture file %s\n", optarg);
+				j = 0;
+				foreach_optarg(argc, argv){
+					get_range(&base, &bound, argv[optind]);
+					err_out(!it_insert(&rf->it, base, bound, ID_NONE), "");
+					j++;
+				}
+				err_out(!j, "No offset specified for file %s\n", rf->file_path);
+				i++;
+			}
+			err_out(!i, "No file specified\n");
 			break;
-		case 'i': // [i]nteractive; shell
-			//shell(argv[0]);
-			err(0);
+		case 'g': // new ran[g]e
+			fs = malloc(argc * sizeof(struct range_file));
+			err_out(!fs, "Too many arguments\n");
+			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
+			fs[0] = NULL;
+			while (getopt(argc, argv, buf) == buf[1]){
+				optind--;
+				if (i % 2){
+					for (j = 0, l = 0; fs[j]; j++){
+						rf = range_add_new_file(&ranges.arr[0], fs[j], ID_NONE);
+						err_out(!rf, "");
+						for (k = 0; k < l; k++){
+							if (fs[k] == rf){
+								goto skip_add_file;
+							}
+						}
+						fs[l] = rf;
+						l++;
+skip_add_file:;
+					}
+					foreach_optarg(argc, argv){
+						get_range(&base, &bound, argv[optind]);
+						for (j = 0; j < l; j++){
+							err_out(!it_insert(&fs[j]->it, base, bound, ID_NONE), "");
+						}
+					}
+					buf -= 4;
+				}
+				else{
+					j = 0;
+					foreach_optarg(argc, argv){
+						fs[j] = (struct range_file*)(argv[j]);
+						j++;
+					}
+					err_out(!j, "-f flag without file\n");
+					fs[j] = NULL;
+					buf += 4;
+				}
+				i++;
+			}
+			err_out(!i, "No file specified\n");
+			break;
+		case 'p': // [p]rint
+			a_list_init(&files->ls, sizeof(char*));
+			for(;;){
+				c = getopt(argc, argv, "+f:g:r:");
+				optind--;
+				switch (c){
+					case 'f':
+						foreach_optarg(argc, argv){
+							cp = a_list_add(&files->ls, sizeof(char*));
+							err_out(!cp, "Failed to capture file %s\n", argv[optind]);
+							*cp = &argv[optind];
+						}
+						break;
+					case 'g':
+					case 'r':
+						foreach_optarg(argc, argv){
+							cp = a_list_add(&ranges->ls, sizeof(struct range*));
+							err_out(!cp, "Failed to capture range %s\n", argv[optind]);
+							err_out(range_init((struct range*)cp, argv[optind]) < 0, "Failed to capture range %s\n", argv[optind]);
+						}
+						break;
+					default:
+						goto out;
+				}
+			}
 			break;
 		case '?':
 			err(1);
@@ -368,6 +313,9 @@ next_arg:;
 			err(1);
 			break;
 	}
+out:
+	if (fs)
+		free(fs);
 }
 
 int main(int argc, char* argv[]){
@@ -376,8 +324,7 @@ int main(int argc, char* argv[]){
 		err(0);
 	}
 	a_list_init(&ranges.ls, sizeof(struct range));
-	opts0(argc, argv);
-	opts1(argc, argv);
+	opts(argc, argv);
 	
 	// TODO
 	return 0;

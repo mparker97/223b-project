@@ -3,6 +3,7 @@
 //#define COMPILE_TEST
 #include <string.h>
 #include <sys/types.h>
+#include <stdbool.h>
 
 #define BITS_PER_BYTE 8
 #define PATH_MAX 4095
@@ -26,13 +27,29 @@
 		(buf)[TAB_OUT_BUF_LEN] = 0; \
 	} while (0)
 
-extern int* opts1_m;
 extern char** p_exe_path;
-extern struct range* input_range;
+extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
+extern A_LIST_UNION(char*, arr, num_files, ls) files;
 
 void err(int e){
-	// TODO: frees
+	int i;
+	for (i = 0; i < ranges.num_ranges; i++){
+		range_deinit(&ranges.arr[i]);
+	}
+	a_list_deinit(&ranges.ls);
+	a_list_deinit(&files.ls);
+	// other frees
 	exit(e);
+}
+
+void err_out(bool cond, char* msg, ...){
+	va_list ap;
+	if (cond){
+		va_start(ap, msg);
+		vprintf(stderr, msg, ap);
+		va_end(ap);
+		err(1);
+	}
 }
 
 void do_print_range(struct range* r){
@@ -104,6 +121,13 @@ void* a_list_init(struct a_list* ls, size_t elm_sz){
 		ls->sz = 0;
 	}
 	return ls->ls;
+}
+
+void a_list_deinit(struct a_list* ls){
+	if (ls->ls){
+		freec(ls->ls);
+		ls->sz = 0;
+	}
 }
 
 void* a_list_add(struct a_list* ls, size_t elm_sz){

@@ -195,7 +195,8 @@ void close_stmts(MYSQL_STMT* stmt, int n){
 int query_select_named_range(struct range* r, char* name){
 	#define NUM_STMT 1
 	#define NUM_BIND 7
-	int ret = 0, i = 0, succ;
+	int ret = 0, succ;
+	struct range_file* rf = NULL;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	char buf[PATH_MAX + 1];
@@ -230,13 +231,13 @@ int query_select_named_range(struct range* r, char* name){
 						if (!strncmp(old_buf, buf, len){ // different file; add it
 							memcpy(old_buf, buf, len);
 							oldbuf[len + 1] = 0;
-							i = range_add_file(r, old_buf, fileId);
-							fail_check(i >= 0);
+							rf = range_add_file(r, old_buf, fileId);
+							fail_check(rf);
 						}
 						if (conflict){
 							printf("Warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 						}
-						if (!it_insert(&r->files[i].it, base, bound, offsetId)){
+						if (!it_insert(&rf->it, base, bound, offsetId)){
 							goto fail;
 						}
 					}
