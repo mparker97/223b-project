@@ -14,8 +14,6 @@ typedef struct it_node{
 	unsigned long id;
 	size_t base;
 	size_t bound;
-	// used for zookeeper
-	size_t sequence;
 } it_node_t;
 
 // linked list because we don't have time to get fancy
@@ -38,7 +36,6 @@ void it_deinit(struct it_head* it){
 }
 
 int it_intersect(struct it_node* a, struct it_node* b){
-	// should be ||?
 	if (a->base <= b->bound && b->base <= a->bound)
 		return 1;
 	return 0;

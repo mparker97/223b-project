@@ -11,12 +11,13 @@ typedef struct zk_lock_context {
     char* parent_path;
     size_t base;
     size_t size;
-    size_t version;
     int owner;  // non-zero if lock was acquired
     zk_lock_callback cb_fn;
     void* cb_data;
 
 } zk_lock_context_t;
+
+typedef struct 
 
 // FUNCTION DECLARATIONS
 void watcher(zhandle_t *zzh, int type, int state, const char *path, void* context);

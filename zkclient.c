@@ -1,5 +1,6 @@
 #include <errno.h>
 #include "interval_tree.h"
+#include "range.h"
 #include "zkclient.h"
 
 static zhandle_t *zh;
@@ -157,8 +158,6 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
 
     int ret = zoo_create(zh, buf, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 
                          ZOO_EPHEMERAL | ZOO_SEQUENCE, full_path, len + 11);
-    // do not want to retry the create since 
-    // we would end up creating more than one child
     if (ret != ZOK) {
         LOG_WARN(LOGCALLBACK(zh), "could not create zoo node %s", buf);
         return ret;
@@ -169,10 +168,11 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     int ret = 0;
     it_node_t* conflict_intervals = _get_sorted_shifted_relevant_intervals(context, &ret);
     // get children call failed in the helper function
-    if (*ret != ZOK) {
-        return *ret;
+    if (ret != ZOK) {
+        return ret;
     }
 
+    // TODO
 }
 
 static it_node_t* _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, int* ret) {
@@ -187,17 +187,36 @@ static it_node_t* _get_sorted_shifted_relevant_intervals(zk_lock_context_t* cont
         return NULL;
     }
 
-    // get interval tree from mysql for this file
-
-    // discard intervals not relevant to current context
-    it_node_t cur_interval = {
+    // get intervals from mysql for this file conflicting with new_interval
+    it_node_t new_interval = {
         .base = context->base,
         .bound = context->base + context->size - 1,
-        .version = context->version,
-        .sequence = getSequenceNumber(context->lock_name)
     };
+    struct range_file rf;
+    *ret = query_select_file_intervals(&rf, context->parent_path, &new_interval);
+    if (*ret == -1) {
+        return NULL;
+    }    
 
-    // return array of relevant intervals sorted by sequence number
+    // get array of relevant intervals
+    it_node_t* cur_interval;
+    it_node_t** interval_array = NULL;
+    int interval_count = 0;
+    it_foreach(&rf.it, cur_interval){
+        interval_count++;
+        it_node_t** temp_array = realloc(
+            interval_array, 
+            interval_count * sizeof(it_node_t*)
+        );
+        if (temp_array == NULL) {
+            *ret = -1;
+            return NULL:
+        }
+        interval_array = temp_array;
+        interval_array[interval_count-1] = cur_interval;
+    }
+
+    // sort array by sequence number
 }
 
 // HELPER UTIL FUNCTIONS

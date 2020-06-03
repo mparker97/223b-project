@@ -256,7 +256,7 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_select_file_intervals(struct range_file* rf, char* file_path){
+int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_t* new_interval){
 	#define NUM_STMT 2
 	#define NUM_BIND 6
 	int ret = 0, succ;
@@ -267,6 +267,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path){
 	unsigned long len;
 	char conflict;
 	bool null, error;
+	struct l_list *cur_ls = &((rf->it).ls);
 	
 	len = strlen(file_path);
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
@@ -301,8 +302,21 @@ int query_select_file_intervals(struct range_file* rf, char* file_path){
 					//if (conflict){
 					//	printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 					//}
-					if (!it_insert(&rf->it, base, bound, offsetId)){
+					it_node_t* cur_interval = (it_node_t*) malloc(sizeof(it_node_t));
+					if (cur_interval == NULL) {
 						goto fail;
+					}
+					cur_interval->ls = L_LIST_NULL;
+					cur_interval->base = base;
+					cur_interval->bound = bound;
+					cur_interval->id = offsetId;
+
+					if (it_intersect(new_interval, &cur_interval)) {
+						l_list_add_after(cur_ls, &(cur_interval->ls));
+						cur_ls = &(cur_interval->ls);
+					}
+					else {
+						free(cur_interval);
 					}
 				}
 			}
