@@ -19,8 +19,8 @@ struct range{
 
 void range_deinit(struct range* r);
 int range_init(struct range* r, char* name);
-int range_add_file(struct range* r, char* file_path, unsigned long id);
-int range_add_new_file(struct range* r, char* file_path, unsigned long id);
+struct range_file* range_add_file(struct range* r, char* file_path, unsigned long id);
+struct range_file* range_add_new_file(struct range* r, char* file_path, unsigned long id);
 void print_file(struct range_file* rf, char* tab_buf);
 void print_range(struct range* r, char* tab_buf);
 

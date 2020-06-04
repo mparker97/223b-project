@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <unistd.h>
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -7,15 +10,13 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <wait.h>
 #include "common.h"
 #include "range.h"
 //#include "_regex.h"
 #include "help.h"
 #include "zkclient.h"
 
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
 #define CP_BYTES_BUF_SZ 4096
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
@@ -26,7 +27,7 @@ struct range_file global_rf;
 pthread_mutex_t print_lock;
 static char** p_exe_path;
 static char swp_dir[PATH_MAX];
-static char oracle[] = {"/*OPEN_ORACLE*/", "/*CLOSE_ORACLE*/"};
+static char* oracle[] = {"/*OPEN_ORACLE*/", "/*CLOSE_ORACLE*/"};
 static char mode = 0;
 
 void cp_bytes(int dst_fd, int src_fd, size_t sz){
@@ -66,7 +67,7 @@ void get_path_by_fd(char* path, int fd){
 
 void unlink_by_fd(int fd){
 	char* path = NULL;
-	get_path_by_fd(path, fd):
+	get_path_by_fd(path, fd);
 	err_out(!path, "Failed to unlink fd %d\n", fd);
     unlink(path);
 	free(path);
@@ -151,7 +152,6 @@ int push_swap_file(int swp_fd, struct range_file* rf){ // oracle w/o \n
 	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
-	size_t nl_count = 1;
 	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
@@ -159,7 +159,7 @@ int push_swap_file(int swp_fd, struct range_file* rf){ // oracle w/o \n
 		goto pass; // really fail
 	}
 	it_foreach(&rf->it, p_itn){
-		o_open = oracle_search(swp_fd, oracle[0], oracle_len[0], o_close + oracle_len[0], &nl_count);
+		o_open = oracle_search(swp_fd, oracle[0], oracle_len[0], o_close + oracle_len[0]);
 		if (o_open < 0){
 			fprintf(stderr, "Failed to find opening oracle:\n\t%s\nfor range %d\n", oracle[0], i);
 			goto rexec;
@@ -168,7 +168,7 @@ int push_swap_file(int swp_fd, struct range_file* rf){ // oracle w/o \n
 			fprintf(stderr, "warning: opening oracle for range %d moved by %ld %s\n",
 				i, (p_itn->base + total_change) - o_open, (rf->mode == RANGE_FILE_MODE_NORMAL)? "bytes" : "lines");
 		}*/
-		o_close = oracle_search(swp_fd, oracle[1], oracle_len[1], o_open + oracle_len[0], &nl_count);
+		o_close = oracle_search(swp_fd, oracle[1], oracle_len[1], o_open + oracle_len[0]);
 		if (o_close < 0){
 			fprintf(stderr, "Failed to find closing oracle:\n\t%s\nfor range %d\n", oracle[1], i);
 			goto rexec;
@@ -213,7 +213,7 @@ int exec_editor(char* f_path){
 	return f;
 }
 
-static struct open_files_thread{
+struct open_files_thread{
 	pthread_t thd;
 	struct range_file* rf;
 };
@@ -224,7 +224,7 @@ void* thd_open_files(void* arg){
 	int i, swp_fd;
 	swp_fd = pull_swap_file(oft->rf);
 	if (swp_fd < 0){
-		fprintf(stder, "Failed to pull file %s\n", oft->rf->file_path);
+		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
 		goto fail;
 	}
 	get_path_by_fd(path, swp_fd);
@@ -251,8 +251,8 @@ fail:
 
 void open_files(struct range* r){
 	int i, j;
-	int* thds = malloc(r->num_files * sizeof(struct open_files_thread));
-	int* retval;
+	struct open_files_thread* thds = malloc(r->num_files * sizeof(struct open_files_thread));
+	void* retval;
 	err_out(!thds, "Malloc open files threads failed\n");
 	for (i = 0; i < r->num_files; i++){
 		thds[i].rf = &r->files[i];
@@ -282,13 +282,14 @@ void get_range(size_t* base, size_t* bound, char* str){
 void* thd_prange(void* arg){
 	struct range r;
 	char* name = (char*)arg;
-	range_init(&r);
+	range_init(&r, name);
 	if (query_select_named_range(&r) >= 0){
 		do_print_range(&r);
 	}
 	else{
-		fprintf(stderr, "Unable to print range %s\n", r.name);
+		fprintf(stderr, "Unable to print range %s\n", name);
 	}
+	range_deinit(&r);
 	return NULL;
 }
 
@@ -296,22 +297,24 @@ void* thd_pfile(void* arg){
 	struct range_file rf;
 	char* name = (char*)arg;
 	it_init(&rf.it);
-	if (query_select_file_intervals(&rf, name) >= 0){
+	if (query_select_file_intervals(&rf, name, NULL) >= 0){
 		do_print_file(&rf);
 	}
 	else{
-		fprintf(stderr, "Unable to print file %s\n", r.name);
+		fprintf(stderr, "Unable to print file %s\n", name);
 	}
+	it_deinit(&rf.it);
 	return NULL;
 }
 
 void opts(int argc, char* argv[]){
 	struct range_file* rf = NULL;
 	size_t base, bound;
-	int i = 0, j, k, l;
 	struct range_file** fs = NULL;
+	void* retval;
 	char* buf = "+f:\0+r:";
 	pthread_t* thds = NULL;
+	int i = 0, j, k, l;
 	char c = getopt(argc, argv, "+g:hn:pr:w:");
 	switch (c){
 		case 'h': // [h]elp
@@ -320,7 +323,7 @@ void opts(int argc, char* argv[]){
 		case 'r': // [r]ead
 		case 'w': // [w]rite
 			err_out(range_init(&global_r, optarg) < 0, "");
-			if (argv[optind] == '-f'){
+			if (!strncmp(argv[optind], "-f", 2)){
 				optind++;
 			}
 			/*foreach_optarg(argc, argv){
@@ -329,7 +332,7 @@ void opts(int argc, char* argv[]){
 				*cp = &argv[optind];
 				i++;
 			}*/
-			err_out(query_select_named_range(&global_r) < 0);
+			err_out(query_select_named_range(&global_r) < 0, "");
 			/*if (i){
 				a_list_sort(&files.ls, sizeof(char*), COMP_STRING);
 				
@@ -359,9 +362,9 @@ void opts(int argc, char* argv[]){
 			fs[0] = NULL;
 			while (getopt(argc, argv, buf) == buf[1]){
 				optind--;
-				if (i % 2){
+				if (i % 2){ // -r
 					for (j = 0, l = 0; fs[j]; j++){
-						rf = range_add_new_file(&global_r, fs[j], ID_NONE);
+						rf = range_add_new_file(&global_r, (char*)(fs[j]), ID_NONE);
 						err_out(!rf, "");
 						for (k = 0; k < l; k++){
 							if (fs[k] == rf){
@@ -380,7 +383,7 @@ skip_add_file:;
 					}
 					buf -= 4;
 				}
-				else{
+				else{ // -f
 					j = 0;
 					foreach_optarg(argc, argv){
 						fs[j] = (struct range_file*)(argv[j]);
@@ -406,7 +409,7 @@ skip_add_file:;
 					case 'f':
 						foreach_optarg(argc, argv){
 							if (!pthread_create(&thds[i], NULL, thd_pfile, argv[optind])){
-								printf(stderr, "Failed to create file print thread %d\n", i);
+								fprintf(stderr, "Failed to create file print thread %d\n", i);
 							}
 							i++;
 						}
@@ -414,8 +417,8 @@ skip_add_file:;
 					case 'g':
 					case 'r':
 						foreach_optarg(argc, argv){
-							if (!pthread_create(&thds[i], NULL, thd_rfile, argv[optind])){
-								printf(stderr, "Failed to create range print thread %d\n", i);
+							if (!pthread_create(&thds[i], NULL, thd_prange, argv[optind])){
+								fprintf(stderr, "Failed to create range print thread %d\n", i);
 							}
 							i++;
 						}
@@ -426,7 +429,7 @@ skip_add_file:;
 			}
 out:
 			for (j = 0; j < i; j++){
-				pthread_join(thds[j], &rf); // I don't care for retval
+				pthread_join(thds[j], &retval);
 			}
 			free(thds);
 			break;
@@ -445,9 +448,9 @@ int main(int argc, char* argv[]){
 		print_usage(argv[0]);
 		err(0);
 	}
-	err_out(!getcwd(buf, PATH_MAX)
+	err_out(!getcwd(swp_dir, PATH_MAX)
 		|| sql_init() < 0
-		|| pthread_mutex_init(print_lock),
+		|| pthread_mutex_init(&print_lock, NULL),
 		"Failed to initialize\n");
 	it_init(&global_rf.it);
 	opts(argc, argv);

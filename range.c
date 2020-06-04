@@ -32,7 +32,7 @@ fail:
 	return -1;
 }
 
-int range_add_file(struct range* r, char* file_path, unsigned long id){
+struct range_file* range_add_file(struct range* r, char* file_path, unsigned long id){
 	struct range_file* rf;
 	char* str;
 	if (strlen(file_path) > PATH_MAX)
@@ -44,19 +44,19 @@ int range_add_file(struct range* r, char* file_path, unsigned long id){
 	if (rf){
 		rf->file_path = str;
 		rf->id = id;
-		return r->num_files - 1;
+		return rf;
 	}
 fail:
 	if (str)
 		free(str);
-	return -1;
+	return NULL;
 }
 
-int range_add_new_file(struct range* r, char* file_path, unsigned long id){
+struct range_file* range_add_new_file(struct range* r, char* file_path, unsigned long id){
 	int i;
 	for (i = 0; i < r->num_files; i++){
 		if (!strcmp(file_path, r->files[i].file_path)){
-			return -1;
+			return NULL;
 		}
 	}
 	return range_add_file(r, file_path, id);
