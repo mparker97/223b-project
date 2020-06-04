@@ -2,28 +2,19 @@
 #define LIST_H
 #include <stdlib.h>
 #include <string.h>
-#include "common.h"
 
 struct l_list{ // linked list
 	struct l_list* next;
 };
 
 #define L_LIST_NULL ((struct l_list){.next = NULL})
-#define l_list_foreach(p, t, m) \
-	for (; (p) != NULL; p = (((p)->m).next)? container_of(((p)->m).next, t, m) : NULL)
 
-static inline void l_list_add_after(struct l_list* curr, struct l_list* n){
-	n->next = curr->next;
-	curr->next = n;
-}
-
-#define A_LIST_INIT_LEN 4
 struct a_list{ // "amortized" list (contiguous array); initial size of A_LIST_INIT_LEN, doubles automatically when filled
 	void* ls;
 	int sz;
 };
-// delete is O(n) because I don't care
 
+#define A_LIST_INIT_LEN 4
 #define A_LIST_UNION(t, n0, n1, n2) \
 union{ \
 	struct{ \
@@ -32,6 +23,17 @@ union{ \
 	}; \
 	struct a_list n2; \
 }
+
+#include "common.h"
+#define l_list_foreach(p, t, m) \
+	for (; (p) != NULL; p = (((p)->m).next)? container_of(((p)->m).next, t, m) : NULL)
+
+static inline void l_list_add_after(struct l_list* curr, struct l_list* n){
+	n->next = curr->next;
+	curr->next = n;
+}
+
+// delete is O(n) because I don't care
 
 #define a_list_index(list, elm_sz, i) ((char*)((list)->ls) + (i) * (elm_sz))
 

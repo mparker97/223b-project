@@ -1,6 +1,7 @@
 #ifndef RANGE_H
 #define RANGE_H
 #include <pthread.h>
+static inline void global_rs_deinit();
 #include "list.h"
 #include "interval_tree.h"
 
@@ -44,7 +45,7 @@ static void do_print_file(struct range_file* rf){
 	pthread_mutex_unlock(&print_lock);
 }
 
-void global_rs_deinit(){
+static inline void global_rs_deinit(){
 	range_deinit(&global_r);
 	range_file_deinit(&global_rf);
 }

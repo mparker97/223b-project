@@ -32,7 +32,6 @@
 	} while (0)
 
 extern pthread_mutex_t print_lock;
-//extern void global_rs_deinit();
 #include "range.h"
 
 static void err(int e){

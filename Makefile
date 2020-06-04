@@ -1,16 +1,29 @@
 CC = gcc
 CFLAGS = -I.
-HS = sql.h common.h list.h interval_tree.h range.h zkclient.h help.h
-OS = main.o sql.o interval_tree.o range.o zkclient.o tests.o
-LIBS = -lmysql -lpthread
+HS = sql.h common.h list.h interval_tree.h range.h help.h
+OS = main.o sql.o interval_tree.o range.o tests.o
+LIBS = -lmysqlclient -lpthread
 
-%.o: %.c $(HS)
-	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS)
+ZKHS = sql.h interval_tree.h range.h zkclient.h
+ZKOS = zkclient.o
+ZKLIBS = -lpthread
+
+.PHONY: all
+all: 223b zookeeper
 
 223b: $(OS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
-.PHONY: clean
+$(OS): %.o: %.c $(HS)
+	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS)
 
+$(ZKOS): %.o: %.c $(ZKHS)
+	$(CC) -c -o $@ $< $(CFLAGS) $(ZKLIBS)
+
+.PHONY: zookeeper
+zookeeper: $(ZKOS)
+	$(CC) -o $@.o $^ $(CFLAGS) $(ZKLIBS)
+
+.PHONY: clean
 clean:
 	rm -f ./*.o

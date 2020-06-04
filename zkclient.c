@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include "sql.h"
 #include "interval_tree.h"
 #include "range.h"
 #include "zkclient.h"

@@ -306,9 +306,9 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_
 					if (succ == MYSQL_NO_DATA){
 						break;
 					}
-					//if (conflict){
-					//	printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
-					//}
+					if (conflict){
+						printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
+					}
 					it_node_t* cur_interval = (it_node_t*) malloc(sizeof(it_node_t));
 					if (cur_interval == NULL) {
 						goto fail;
