@@ -4,9 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "common.h"
-#include "range.h"
 #include "list.h"
 #include "interval_tree.h"
+#include "range.h"
 
 int range_init(struct range* r, char* name){
 	if (!(r->name = strdup(name)))

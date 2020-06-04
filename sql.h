@@ -1,12 +1,14 @@
 #ifndef SQL_H
 #define SQL_H
-#include "interval_tree.h"
-#include "range.h"
+
+struct range;
+struct range_file;
+struct it_node;
 
 int sql_init();
 void sql_end();
 int query_select_named_range(struct range* r);
-int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_t* new_interval);
+int query_select_file_intervals(struct range_file* rf, char* file_path, struct it_node* new_interval);
 int query_insert_named_range(struct range* r);
 int query_resize_file(struct range_file* f);
 

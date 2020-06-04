@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 #include "interval_tree.h"
 #include "range.h"

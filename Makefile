@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -I.
-HS = common.h list.h range.h interval_tree.h sql.h help.h
-OS = main.o sql.o range.o interval_tree.o zkclient.o tests.o
+HS = sql.h common.h list.h interval_tree.h range.h  zkclient.h help.h
+OS = main.o sql.o interval_tree.o range.o zkclient.o tests.o
 LIBS = -lmysql -lpthread
 
 %.o: %.c $(HS)

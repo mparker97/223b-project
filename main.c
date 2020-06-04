@@ -11,9 +11,9 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include <wait.h>
+#include "sql.h"
 #include "common.h"
 #include "range.h"
-//#include "_regex.h"
 #include "help.h"
 #include "zkclient.h"
 
@@ -22,7 +22,6 @@
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
 struct range global_r;
-//A_LIST_UNION(char*, arr, num_files, ls) files;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
 static char** p_exe_path;
