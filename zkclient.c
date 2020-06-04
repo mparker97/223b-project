@@ -225,19 +225,30 @@ static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, s
 }
 
 static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it_array_t* ret_array) {
+    ret_array->array = NULL;
+    ret_array->len = 0;
+
     // get all existing interval locks <offset_id>-<sequence>
-    // ideally this would be a map, but we'll just do a linear search for the time being
-    struct String_vector all_intervals;
-    all_intervals.data = NULL;
-    all_intervals.count = 0;
+    struct String_vector interval_locks;
+    interval_locks.data = NULL;
+    interval_locks.count = 0;
     char interval_path[strlen(context->parent_path) + 10];
     sprintf(interval_path, "%s/interval", context->parent_path);
-    int ret = zoo_get_children(zh, interval_path, 0, &all_intervals);
+    int ret = zoo_get_children(zh, interval_path, 0, &interval_locks);
     if (ret != ZOK) {
         return ret;
     }
 
-    // TODO
+    // return straight away if empty
+    if (interval_locks.count == 0) {
+        return 0;
+    }
+
+    // sorted list of interval locks (<offset_id>-<sequence>)
+    it_node_t** locks_sorted_by_offset_id = _sort_interval_locks_by_offset_id(&interval_locks);
+    if (locks_sorted_by_offset_id == NULL) {
+        return -1;
+    }
 
     // get intervals from mysql for this file conflicting with new_interval
     it_node_t new_interval = {
@@ -265,14 +276,57 @@ static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it
         }
         interval_array = temp_array;
         interval_array[interval_count-1] = cur_interval;
+
+        // find corresponding sequence from zk for cur_interval
+        // ideally this would be a map, but we'll just do a binary search for the time being
+        it_node_t** found_interval = (it_node_t**) bsearch(
+            &cur_interval, 
+            locks_sorted_by_offset_id, 
+            interval_locks.count,
+            sizeof(cur_interval),
+            cmpOffsetIdFunc
+        );
+        cur_interval->sequence = (*found_interval)->sequence;
     }
 
+    // free the locks information with just the offset_id and sequence
+    _free_intervals_array(locks_sorted_by_offset_id, interval_locks.count);
+
     // sort array by sequence number
-    // TODO
+    qsort(interval_array, interval_count, sizeof(it_node_t*), cmpSequenceFunc);
 
     // set return value
     ret_array->array = interval_array;
     ret_array->len = interval_count;
+}
+
+static it_node_t** _sort_interval_locks_by_offset_id(struct String_vector * interval_children) {
+    it_node_t** intervals_array = malloc(interval_children->count * sizeof(it_node_t*));
+    if (intervals_array == NULL) {
+        return NULL;
+    }
+
+    for (int i=0; i < interval_children->count; i++) {
+        it_node_t* cur_interval = malloc(sizeof(it_node_t));
+        if (cur_interval == NULL) {
+            _free_intervals_array(intervals_array, i);
+            return NULL;
+        }
+        sscanf(interval_children->data[i], "%d-%d", &(cur_interval->id), &(cur_interval->sequence));
+        intervals_array[i] = cur_interval;
+    }
+
+    // sort array by offset_id
+    qsort(intervals_array, interval_children->count, sizeof(it_node_t*), cmpOffsetIdFunc);
+
+    return intervals_array;
+}
+
+static void _free_intervals_array(it_node_t** intervals_array, int len) {
+    for (int i=0; i < len; i++) {
+        free(intervals_array[i]);        
+    }
+    free(intervals_array);
 }
 
 // HELPER UTIL FUNCTIONS
@@ -302,8 +356,14 @@ static size_t getSequenceNumber(char* lock_name) {
     return ret;
 }
 
+// compare function for it_node_t* elements by sequence
 int cmpSequenceFunc(const void * a, const void * b) {
     return ((*(it_node_t**)a)->sequence - (*(it_node_t**)b)->sequence);
+}
+
+// compare function for it_node_t* elements by offset
+int cmpOffsetIdFunc(const void * a, const void * b) {
+    return ((*(it_node_t**)a)->id - (*(it_node_t**)b)->id);
 }
 
 // TODO test
