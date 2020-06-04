@@ -437,7 +437,7 @@ out:
 			err(1);
 			break;
 		case -1:
-			fprintf(stderr, "No mode specified. Use %s -h for help\n", argv[0]);
+			fprintf(stderr, "No mode specified. Use %s -h for help.\n", argv[0]);
 			err(1);
 			break;
 	}
