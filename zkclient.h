@@ -4,13 +4,21 @@
 #include <zookeeper/zookeeper.h>
 #include <pthread.h>
 
+#define MASTER_LOCK_TYPE 0
+#define INTERVAL_LOCK_TYPE 1
+
 // callback function
 typedef void (* zk_lock_callback) (void* cb_data);
 typedef struct zk_lock_context {
     char* lock_name;
     char* parent_path;
     unsigned long offset_id;
-    int owner;  // non-zero if lock was acquired
+    size_t base;
+    size_t bound;
+    // non-zero if lock was acquired
+    int owner;  
+    // 0 if "master" lock, 1 if "interval" lock
+    int lock_type;
     zk_lock_callback cb_fn;
     void* cb_data;
 

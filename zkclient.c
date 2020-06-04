@@ -36,8 +36,24 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
         }
     }
     else if (type == ZOO_DELETED_EVENT) {
-        // TODO
-        // double check children 
+        zk_lock_context_t* zkcontext = (zk_lock_context_t*) context;
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = (.5)*1000000;
+
+        if (zkcontext->lock_type == MASTER_LOCK_TYPE) {
+            // TODO
+            // get all children on parent znode
+        }
+        // zkcontext->lock_type == INTERVAL_LOCK_TYPE
+        else {
+            // helper function will set watch if not owner
+            _zk_determine_interval_lock_eligibility(zkcontext, &ts);
+            if (zkcontext->owner) {
+                // successfully acquired lock
+                zkcontext->cb_fn(zkcontext->cb_data);
+            }
+        } 
     }
 }
 
@@ -98,7 +114,7 @@ int zk_acquire_interval_lock(zk_lock_context_t *context) {
 
     // create subnode .../foo/interval if it doesn’t exist before
     char interval_path[strlen(path) + 10];
-    sprintf(version_path, "%s/interval", path);
+    sprintf(interval_path, "%s/interval", path);
     exists = zoo_exists(zh, interval_path, 0, &stat);
     count = 0;
     while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
@@ -145,6 +161,10 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     }
     context->lock_name = getLockName(full_path);
 
+    return _zk_determine_interval_lock_eligibility(context, ts);
+}
+
+static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, struct timespec *ts) {
     // 2. GET CHILDREN, SHIFT INTERVALS AS NEEDED AND DISCARD THOSE NOT IN INTERVAL
     it_array_t relevant_intervals;
     int ret = _get_sorted_shifted_relevant_intervals(context, &relevant_intervals);
@@ -154,36 +174,54 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     }
 
     // 3. DETERMINE LOCK ELIGIBILITY
-    // there are no conflicting locks - client has lock
+    // should not be empty since we created the lock before getChildren
     if (relevant_intervals.len == 0) {
+        fprintf(stderr, "List of relevant interval nodes is empty");
+        return -1;
+    }
+
+    // there are no conflicting locks - client has lock
+    int cur_sequence = getSequenceNumber(context->lock_name);
+    if (relevant_intervals.array[0]->sequence == cur_sequence) {
         context->owner = 1;
         return ZOK;
     }
-
+    
     context->owner = 0;
+    it_node_t new_interval = {
+        .sequence = cur_sequence,
+    };
+    it_node_t* ni_ptr = &new_interval;
+    it_node_t** found_interval = (it_node_t**) bsearch(
+        &ni_ptr, 
+        relevant_intervals.array, 
+        relevant_intervals.len,
+        sizeof(ni_ptr),
+        cmpSequenceFunc
+    );
 
-    // watch lock znode with smallest sequence number
+    // watch lock znode with next smallest sequence number
+    // since the cur_sequence is not the smallest, found_interval is definitely not at index 0
+    found_interval--;
+
+    // 10 for "/interval/" + 1 for '\0' + 23 for "<offset_id>-<sequence>"
+    int len = strlen(context->parent_path) + 34;
+    char buf[len];
+    sprintf(buf, "%s/interval/%d-%010d", context->parent_path,
+            (*found_interval)->id, (*found_interval)->sequence);
+    
     struct Stat stat;
-    for (int i = 0; i < relevant_intervals.len; i++) {
-        // 10 for "/interval/" + 1 for '\0' + 23 for "<offset_id>-<sequence>"
-        int len = strlen(context->parent_path) + 34;
-        char buf[len];
-        sprintf(buf, "%s/interval/%d-%010d", 
-                context->parent_path,
-                relevant_intervals.array[i]->id,
-                relevant_intervals.array[i]->sequence);
-        ret = zoo_exists(zh, buf, 1, &stat);
-        if (ret == ZOK) {
-            return ret;
+    ret = zoo_wexists(zh, buf, watcher, (void*) context, &stat);
+    int retry_count = 0;
+    while (ret != ZOK && retry_count < 3) {
+        ret = zoo_wexists(zh, buf, watcher, (void*) context, &stat);
+        if (ret != ZOK) {
+            nanosleep(&ts, 0);
+            retry_count++;
         }
-        // error
-        else if (ret != ZNONODE) {
-            return ret;
-        }
-        // else - ret == ZNONODE -> continue
     }
 
-    return -1;
+    return ret;
 }
 
 static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it_array_t* ret_array) {
@@ -204,7 +242,7 @@ static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it
     // get intervals from mysql for this file conflicting with new_interval
     it_node_t new_interval = {
         .base = context->base,
-        .bound = context->base + context->size - 1,
+        .bound = context->bound,
     };
     struct range_file rf;
     ret = query_select_file_intervals(&rf, context->parent_path, &new_interval);
@@ -262,6 +300,10 @@ static size_t getSequenceNumber(char* lock_name) {
         return 0;
 
     return ret;
+}
+
+int cmpSequenceFunc(const void * a, const void * b) {
+    return ((*(it_node_t**)a)->sequence - (*(it_node_t**)b)->sequence);
 }
 
 // TODO test
