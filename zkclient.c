@@ -96,24 +96,6 @@ int zk_acquire_interval_lock(zk_lock_context_t *context) {
         return exists;
     }
 
-    // get current version of file, or create one if it doesn't exist yet
-    char version_path[strlen(path) + 9];
-    sprintf(version_path, "%s/version", path);
-    exists = zoo_exists(zh, version_path, 0, &stat);
-    count = 0;
-    while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
-        count++;
-        if (exists == ZCONNECTIONLOSS) 
-            exists = zoo_exists(zh, version_path, 0, &stat);
-        else if (exists == ZNONODE) 
-            exists = zoo_create(zh, version_path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
-        nanosleep(&ts, 0);
-    }
-    if (exists == ZCONNECTIONLOSS) {
-        return exists;
-    }
-    context->version = stat.version;
-
     // create subnode .../foo/interval if it doesn’t exist before
     char interval_path[strlen(path) + 10];
     sprintf(version_path, "%s/interval", path);
@@ -148,11 +130,10 @@ int zk_acquire_interval_lock(zk_lock_context_t *context) {
 static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timespec *ts) {
     // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
     // construct full lock file path: .../foo/interval/<VERSION>-<START>-<LENGTH>-<SEQUENCE>
-    // 47 = 2 for '/' + 1 for '\0' + 8 for "interval" + 3 for '-' + 11 for each number v-s-l * 3
-    int len = strlen(context->parent_path) + 47;
+    // 47 = 10 for "/interval/" + 1 for '\0' + 1 for '-' + 11 for offset_id number 
+    int len = strlen(context->parent_path) + 23;
     char buf[len];
-    sprintf(buf, "%s/interval/%d-%d-%d-", context->parent_path, context->version, 
-            context->base, context->size);
+    sprintf(buf, "%s/interval/%d-", context->parent_path, context->offset_id);
     // 11 for the <SEQUENCE>
     char full_path[len + 11];
 
@@ -165,27 +146,60 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     context->lock_name = getLockName(full_path);
 
     // 2. GET CHILDREN, SHIFT INTERVALS AS NEEDED AND DISCARD THOSE NOT IN INTERVAL
-    int ret = 0;
-    it_node_t* conflict_intervals = _get_sorted_shifted_relevant_intervals(context, &ret);
+    it_array_t relevant_intervals;
+    int ret = _get_sorted_shifted_relevant_intervals(context, &relevant_intervals);
     // get children call failed in the helper function
     if (ret != ZOK) {
         return ret;
     }
 
-    // TODO
+    // 3. DETERMINE LOCK ELIGIBILITY
+    // there are no conflicting locks - client has lock
+    if (relevant_intervals.len == 0) {
+        context->owner = 1;
+        return ZOK;
+    }
+
+    context->owner = 0;
+
+    // watch lock znode with smallest sequence number
+    struct Stat stat;
+    for (int i = 0; i < relevant_intervals.len; i++) {
+        // 10 for "/interval/" + 1 for '\0' + 23 for "<offset_id>-<sequence>"
+        int len = strlen(context->parent_path) + 34;
+        char buf[len];
+        sprintf(buf, "%s/interval/%d-%010d", 
+                context->parent_path,
+                relevant_intervals.array[i]->id,
+                relevant_intervals.array[i]->sequence);
+        ret = zoo_exists(zh, buf, 1, &stat);
+        if (ret == ZOK) {
+            return ret;
+        }
+        // error
+        else if (ret != ZNONODE) {
+            return ret;
+        }
+        // else - ret == ZNONODE -> continue
+    }
+
+    return -1;
 }
 
-static it_node_t* _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, int* ret) {
-    // get all existing interval locks
+static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it_array_t* ret_array) {
+    // get all existing interval locks <offset_id>-<sequence>
+    // ideally this would be a map, but we'll just do a linear search for the time being
     struct String_vector all_intervals;
     all_intervals.data = NULL;
     all_intervals.count = 0;
     char interval_path[strlen(context->parent_path) + 10];
     sprintf(interval_path, "%s/interval", context->parent_path);
-    *ret = zoo_get_children(zh, interval_path, 0, &all_intervals);
-    if (*ret != ZOK) {
-        return NULL;
+    int ret = zoo_get_children(zh, interval_path, 0, &all_intervals);
+    if (ret != ZOK) {
+        return ret;
     }
+
+    // TODO
 
     // get intervals from mysql for this file conflicting with new_interval
     it_node_t new_interval = {
@@ -193,9 +207,9 @@ static it_node_t* _get_sorted_shifted_relevant_intervals(zk_lock_context_t* cont
         .bound = context->base + context->size - 1,
     };
     struct range_file rf;
-    *ret = query_select_file_intervals(&rf, context->parent_path, &new_interval);
-    if (*ret == -1) {
-        return NULL;
+    ret = query_select_file_intervals(&rf, context->parent_path, &new_interval);
+    if (ret == -1) {
+        return ret;
     }    
 
     // get array of relevant intervals
@@ -209,14 +223,18 @@ static it_node_t* _get_sorted_shifted_relevant_intervals(zk_lock_context_t* cont
             interval_count * sizeof(it_node_t*)
         );
         if (temp_array == NULL) {
-            *ret = -1;
-            return NULL:
+            return -1;
         }
         interval_array = temp_array;
         interval_array[interval_count-1] = cur_interval;
     }
 
     // sort array by sequence number
+    // TODO
+
+    // set return value
+    ret_array->array = interval_array;
+    ret_array->len = interval_count;
 }
 
 // HELPER UTIL FUNCTIONS

@@ -14,7 +14,13 @@ typedef struct it_node{
 	unsigned long id;
 	size_t base;
 	size_t bound;
+	int sequence;
 } it_node_t;
+
+typedef struct it_array {
+	it_node_t** array;
+	size_t len;
+} it_array_t;
 
 // linked list because we don't have time to get fancy
 struct it_head{

@@ -9,15 +9,12 @@ typedef void (* zk_lock_callback) (void* cb_data);
 typedef struct zk_lock_context {
     char* lock_name;
     char* parent_path;
-    size_t base;
-    size_t size;
+    unsigned long offset_id;
     int owner;  // non-zero if lock was acquired
     zk_lock_callback cb_fn;
     void* cb_data;
 
 } zk_lock_context_t;
-
-typedef struct 
 
 // FUNCTION DECLARATIONS
 void watcher(zhandle_t *zzh, int type, int state, const char *path, void* context);
