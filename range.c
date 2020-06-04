@@ -8,6 +8,18 @@
 #include "list.h"
 #include "interval_tree.h"
 
+int range_init(struct range* r, char* name){
+	if (!(r->name = strdup(name)))
+		goto fail;
+	if (!a_list_init(&r->ls, sizeof(struct range_file)))
+		goto fail;
+	return 0;
+fail:
+	fprintf(stderr, "Failed to initialize range\n");
+	range_deinit(r);
+	return -1;
+}
+
 void range_deinit(struct range* r){
 	int i;
 	r->num_files = 0;
@@ -22,16 +34,8 @@ void range_deinit(struct range* r){
 	a_list_deinit(&r->ls);
 }
 
-int range_init(struct range* r, char* name){
-	if (!(r->name = strdup(name)))
-		goto fail;
-	if (!a_list_init(&r->ls, sizeof(struct range_file)))
-		goto fail;
-	return 0;
-fail:
-	fprintf(stderr, "Failed to initialize range\n");
-	range_deinit(r);
-	return -1;
+void range_file_deinit(struct range_file* rf){
+	it_deinit(&rf->it);
 }
 
 struct range_file* range_add_file(struct range* r, char* file_path, unsigned long id){

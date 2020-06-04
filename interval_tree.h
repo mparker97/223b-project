@@ -1,5 +1,6 @@
 #ifndef INTERVAL_TREE_H
 #define INTERVAL_TREE_H
+#include "common.h"
 #include "list.h"
 
 // can't do while (0) this

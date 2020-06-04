@@ -7,9 +7,9 @@
 #include <sys/types.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include "sql.h"
 #include "interval_tree.h"
 #include "range.h"
+#include "sql.h"
 
 #define BITS_PER_BYTE 8
 #define PATH_MAX 4095
@@ -40,7 +40,7 @@ extern pthread_mutex_t print_lock;
 
 void err(int e){
 	range_deinit(&global_r);
-	it_deinit(&global_rf.it);
+	range_file_deinit(&global_rf);
 	pthread_mutex_destroy(&print_lock);
 	sql_end();
 	// other frees

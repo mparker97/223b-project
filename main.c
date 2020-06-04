@@ -303,7 +303,7 @@ void* thd_pfile(void* arg){
 	else{
 		fprintf(stderr, "Unable to print file %s\n", name);
 	}
-	it_deinit(&rf.it);
+	rf_deinit(&rf);
 	return NULL;
 }
 
