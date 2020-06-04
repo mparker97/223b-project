@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include "sql.h"
 
 #define BITS_PER_BYTE 8
 #define PATH_MAX 4095
@@ -37,6 +38,7 @@ void err(int e){
 	range_deinit(&global_r);
 	it_deinit(&global_rf.it);
 	pthread_mutex_destroy(&print_lock);
+	sql_end();
 	// other frees
 	exit(e);
 }

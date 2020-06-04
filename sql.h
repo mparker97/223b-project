@@ -2,6 +2,8 @@
 #define SQL_H
 #include "range.h"
 
+int sql_init();
+void sql_end();
 int query_select_named_range(struct range* r);
 int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_t* new_interval);
 int query_insert_named_range(struct range* r);

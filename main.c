@@ -446,11 +446,10 @@ int main(int argc, char* argv[]){
 		err(0);
 	}
 	err_out(!getcwd(buf, PATH_MAX)
+		|| sql_init() < 0
 		|| pthread_mutex_init(print_lock),
 		"Failed to initialize\n");
 	it_init(&global_rf.it);
 	opts(argc, argv);
-	
-	// TODO?
-	return 0;
+	err(0);
 }

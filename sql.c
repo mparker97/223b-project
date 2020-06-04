@@ -138,24 +138,27 @@ static const char* QUERY_RESIZE_FILE[] = {
 
 static MYSQL mysql;
 
-void sql_init(){
+int sql_init(){
 	/* mysql_init does this
 	if (mysql_library_init(0, NULL, NULL)){
 		fprintf(stderr, "Failed to initialize mysql library\n");
 	}
 	*/
+	int ret = 0;
 	mysql_init(&mysql);
 	if (!mysql_real_connect(&mysql,
-		NULL, // localhost // TODO: remote host?
-		"root", // user
-		"passwd", // password
+		"172.31.24.95", // localhost // TODO: remote host?
+		"client", // user
+		"password", // password
 		NULL, // db name
 		0, // port
-		"SOCKET_NAME_HERE", // socket
+		NULL, // socket
 		0 // options
 	)){
 		fprintf(stderr, "Mysql connection failed\n");
+		ret = -1;
 	}
+	return ret;
 }
 
 void sql_end(){
