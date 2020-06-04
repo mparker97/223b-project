@@ -1,6 +1,6 @@
 #include "common.h"
 #ifdef COMPILE_TEST
-
+#include <stdio.h>
 #include "interval_tree.h"
 
 void it_print(struct it_head* it){

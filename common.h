@@ -1,12 +1,15 @@
 #ifndef COMMON_H
 #define COMMON_H
 //#define COMPILE_TEST
+#include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 #include <sys/types.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include "sql.h"
 #include "interval_tree.h"
+#include "range.h"
 
 #define BITS_PER_BYTE 8
 #define PATH_MAX 4095

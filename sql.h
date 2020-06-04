@@ -1,5 +1,6 @@
 #ifndef SQL_H
 #define SQL_H
+#include "interval_tree.h"
 #include "range.h"
 
 int sql_init();

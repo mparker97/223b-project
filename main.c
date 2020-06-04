@@ -119,7 +119,7 @@ int pull_swap_file(struct range_file* rf){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		goto fail;
 	}
-	swp_fd = open(swp_dir, O_RDWR | O_TMPFILE, S_IRWXU);
+	swp_fd = open(swp_dir, O_RDWR /*| O_TMPFILE*/, S_IRWXU);
 	if (swp_fd < 0){
 		fprintf(stderr, "Failed to create swap file for %s\n", rf->file_path);
 		goto fail;

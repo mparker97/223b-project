@@ -1,5 +1,6 @@
 #ifndef LIST_H
 #define LIST_H
+#include <stdlib.h>
 #include <string.h>
 
 struct l_list{ // linked list
