@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -I.
-HS = common.h range.h interval_tree.h sql.h help.h
+HS = common.h list.h range.h interval_tree.h sql.h help.h
 OS = main.o sql.o
 LIBS = -lmysql -lpthread
 
