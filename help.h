@@ -31,8 +31,8 @@ MODE: Select one of the following:\n\
 				to only the files given after this pair's -f flag.\n\
 			INTERVAL should be written as \"A,B\" (without quotes).\n\
 				This indicates an interval from byte A up to but not including byte B.\n\
-				To start at the beginning of a file, withhold A (e.g. ",32").\n\
-				To go until the end of a file. withhold B (e.g. "32,".\n\
+				To start at the beginning of a file, withhold A (e.g. \",32\").\n\
+				To go until the end of a file. withhold B (e.g. \"32,\".\n\
 	-p (((-g)|(-r) (RANGE_NAME)+)* (-f (FILE_PATH)+)*)*\n\
 		Print: Display named ranges.\n\
 			The -g or -r flag gives a set of ranges to print.\n\
