@@ -37,13 +37,15 @@ void cp_bytes(int dst_fd, int src_fd, size_t sz){
 		r = read(src_fd, buf, CP_BYTES_BUF_SZ);
 		if (r < 0){
 			fprintf(stderr, "Failed to read from file %d\n", src_fd);
-			closec(dst_fd);
-			closec(src_fd);
+			close(dst_fd);
+			close(src_fd);
 			err(1);
+		}
+		else if (r == 0){
+			break;
 		}
 		write(dst_fd, buf, r);
 	}
-	return line_count;
 }
 
 char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
@@ -178,8 +180,10 @@ int push_swap_file(int swp_fd, struct range_file* rf){ // oracle w/o \n
 		p_itn->base = o_close - i * oracle_len[0];
 		i++;
 	}
-	// unlink_by_fd(swp_fd); // to remove swap file
-	//close(swp_fd);
+	if (query_resize_file(rf) >= 0){
+		unlink_by_fd(swp_fd); // to remove swap file
+		close(swp_fd);
+	}
 	goto pass;
 rexec:
 	ret = -2;
@@ -203,6 +207,7 @@ int exec_editor(char* f_path){
 		err_out(true, "Failed to run executable %s\n", tmp);
 	}
 	else{
+		printf("Writing file %s from pid %d\n", f_path, f);
 		waitpid(f, NULL, 0);
 	}
 	return f;
@@ -213,7 +218,7 @@ static struct open_files_thread{
 	struct range_file* rf;
 };
 
-void* open_files_func(void* arg){
+void* thd_open_files(void* arg){
 	char path[PATH_MAX];
 	struct open_files_thread* oft = (struct open_files_thread*)arg;
 	int i, swp_fd;
@@ -251,7 +256,7 @@ void open_files(struct range* r){
 	err_out(!thds, "Malloc open files threads failed\n");
 	for (i = 0; i < r->num_files; i++){
 		thds[i].rf = &r->files[i];
-		pthread_create(&thds[i].thd, NULL, open_files_func, &thds[i]);
+		pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i]);
 	}
 	for (i = 0; i < r->num_files; i++){
 		pthread_join(thds[i].thd, &retval);
@@ -397,7 +402,7 @@ skip_add_file:;
 			for(;;){
 				c = getopt(argc, argv, "+f:g:r:");
 				optind--;
-				switch (c){ // I realize I could have just printed them on the fly... oh well
+				switch (c){
 					case 'f':
 						foreach_optarg(argc, argv){
 							if (!pthread_create(&thds[i], NULL, thd_pfile, argv[optind])){
@@ -421,7 +426,7 @@ skip_add_file:;
 			}
 out:
 			for (j = 0; j < i; j++){
-				pthread_join(thds[j], fs); // I don't care for retval
+				pthread_join(thds[j], &rf); // I don't care for retval
 			}
 			free(thds);
 			break;
