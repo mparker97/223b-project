@@ -311,7 +311,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_
 					cur_interval->bound = bound;
 					cur_interval->id = offsetId;
 
-					if (it_intersect(new_interval, &cur_interval)) {
+					if (it_intersect(new_interval, cur_interval)) {
 						l_list_add_after(cur_ls, &(cur_interval->ls));
 						cur_ls = &(cur_interval->ls);
 					}

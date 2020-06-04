@@ -3,6 +3,7 @@
 //#define COMPILE_TEST
 #include <string.h>
 #include <sys/types.h>
+#include <pthread.h>
 #include <stdbool.h>
 
 #define BITS_PER_BYTE 8
@@ -29,8 +30,9 @@
 
 extern char** p_exe_path;
 extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
-extern A_LIST_UNION(char*, arr, num_files, ls) files;
+//extern A_LIST_UNION(char*, arr, num_files, ls) files;
 extern struct range_file global_rf;
+extern pthread_mutex_t print_lock;
 
 void err(int e){
 	int i;
@@ -57,13 +59,17 @@ void err_out(bool cond, char* msg, ...){
 void do_print_range(struct range* r){
 	char tab_buf[8];
 	tab_buf[0] = 0;
+	pthread_mutex_lock(&print_lock);
 	print_range(r, tab_buf);
+	pthread_mutex_unlock(&print_lock);
 }
 
 void do_print_file(struct range_file* rf){
 	char tab_buf[8];
 	tab_buf[0] = 0;
+	pthread_mutex_lock(&print_lock);
 	print_file(r, tab_buf);
+	pthread_mutex_unlock(&print_lock);
 }
 
 ssize_t substrn(const char* str, size_t str_len, char* src, size_t src_len){ // find a leading portion of str (nonzero length str_len) in src (length src_len); return index of start

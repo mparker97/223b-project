@@ -21,9 +21,10 @@
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
 char** p_exe_path;
-A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
-A_LIST_UNION(char*, arr, num_files, ls) files;
+struct range* global_r;
+//A_LIST_UNION(char*, arr, num_files, ls) files;
 struct range_file global_rf;
+pthread_mutex_t print_lock;
 static char swp_dir[PATH_MAX];
 static char oracle[] = {"/*OPEN_ORACLE*/", "/*CLOSE_ORACLE*/"};
 static char mode = 0;
@@ -99,7 +100,7 @@ void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle
 	}
 }
 
-int pull_swap_file(, struct range_file* rf){ // swp_dir is absolute // oracle with \n at end
+int pull_swap_file(struct range_file* rf){
 	int swp_fd = 0, backing_fd = 0;
 	char* s;
 	struct stat f_stat;
@@ -274,13 +275,39 @@ void get_range(size_t* base, size_t* bound, char* str){
 	err(1);
 }
 
+void* thd_prange(void* arg){
+	struct range r;
+	char* name = (char*)arg;
+	range_init(&r);
+	if (query_select_named_range(&r) >= 0){
+		do_print_range(&r);
+	}
+	else{
+		fprintf(stderr, "Unable to print range %s\n", r.name);
+	}
+	return NULL;
+}
+
+void* thd_pfile(void* arg){
+	struct range_file rf;
+	char* name = (char*)arg;
+	it_init(&rf.it);
+	if (query_select_file_intervals(&rf, name) >= 0){
+		do_print_file(&rf);
+	}
+	else{
+		fprintf(stderr, "Unable to print file %s\n", r.name);
+	}
+	return NULL;
+}
+
 void opts(int argc, char* argv[]){
 	struct range_file* rf = NULL;
 	size_t base, bound;
 	int i = 0, j, k, l;
 	struct range_file** fs = NULL;
 	char* buf = "+f:\0+r:";
-	char** cp;
+	pthread_t* thds = NULL;
 	char c = getopt(argc, argv, "+g:hn:pr:w:");
 	switch (c){
 		case 'h': // [h]elp
@@ -288,27 +315,27 @@ void opts(int argc, char* argv[]){
 			break;
 		case 'r': // [r]ead
 		case 'w': // [w]rite
-			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
+			err_out(range_init(&global_r, optarg) < 0, "");
 			if (argv[optind] == '-f'){
 				optind++;
 			}
-			foreach_optarg(argc, argv){
+			/*foreach_optarg(argc, argv){
 				cp = a_list_add(&files.ls, sizeof(char*));
 				err_out(!cp, "Failed to capture file %s\n", argv[optind]);
 				*cp = &argv[optind];
 				i++;
-			}
-			err_out(query_select_named_range(&ranges[0]) < 0);
+			}*/
+			err_out(query_select_named_range(&global_r) < 0);
 			/*if (i){
 				a_list_sort(&files.ls, sizeof(char*), COMP_STRING);
 				
 			}*/
-			open_files(&ranges[0]);
+			open_files(&global_r);
 			break;
 		case 'n': // i[n]sert
-			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
+			err_out(range_init(&global_r, optarg) < 0, "");
 			while (getopt(argc, argv, "+f:") == 'f'){
-				rf = range_add_new_file(&ranges.arr[0], optarg, ID_NONE);
+				rf = range_add_new_file(&global_r, optarg, ID_NONE);
 				err_out(!rf, "Failed capture file %s\n", optarg);
 				j = 0;
 				foreach_optarg(argc, argv){
@@ -324,13 +351,13 @@ void opts(int argc, char* argv[]){
 		case 'g': // new ran[g]e
 			fs = malloc(argc * sizeof(struct range_file*));
 			err_out(!fs, "Too many arguments\n");
-			err_out(range_init(&ranges.arr[0], optarg) < 0, "");
+			err_out(range_init(&global_r, optarg) < 0, "");
 			fs[0] = NULL;
 			while (getopt(argc, argv, buf) == buf[1]){
 				optind--;
 				if (i % 2){
 					for (j = 0, l = 0; fs[j]; j++){
-						rf = range_add_new_file(&ranges.arr[0], fs[j], ID_NONE);
+						rf = range_add_new_file(&global_r, fs[j], ID_NONE);
 						err_out(!rf, "");
 						for (k = 0; k < l; k++){
 							if (fs[k] == rf){
@@ -363,50 +390,41 @@ skip_add_file:;
 			}
 			free(fs);
 			err_out(!i, "No file specified\n");
-			query_insert_named_range(&ranges.arr[0]);
+			query_insert_named_range(&global_r);
 			break;
 		case 'p': // [p]rint
+			thds = malloc(argc * sizeof(pthread_t));
+			err_out(!thds, "Too many arguments\n");
 			for(;;){
 				c = getopt(argc, argv, "+f:g:r:");
 				optind--;
 				switch (c){ // I realize I could have just printed them on the fly... oh well
 					case 'f':
 						foreach_optarg(argc, argv){
-							cp = a_list_add(&files.ls, sizeof(char*));
-							err_out(!cp, "Failed to capture file %s\n", argv[optind]);
-							*cp = &argv[optind];
+							if (!pthread_create(&thds[i], NULL, thd_pfile, argv[optind])){
+								printf(stderr, "Failed to create file print thread %d\n", i);
+							}
+							i++;
 						}
 						break;
 					case 'g':
 					case 'r':
 						foreach_optarg(argc, argv){
-							cp = a_list_add(&ranges.ls, sizeof(struct range*));
-							err_out(!cp, "Failed to capture range %s\n", argv[optind]);
-							err_out(range_init((struct range*)cp, argv[optind]) < 0, "Failed to capture range %s\n", argv[optind]);
+							if (!pthread_create(&thds[i], NULL, thd_rfile, argv[optind])){
+								printf(stderr, "Failed to create range print thread %d\n", i);
+							}
+							i++;
 						}
 						break;
 					default:
 						goto out;
 				}
 			}
-			out:
-			for (i = 0; i < ranges.num_ranges; i++){
-				if (query_select_named_range(&ranges.arr[i]) >= 0){
-					do_print_range(&ranges.arr[i]);
-				}
-				else{
-					fprintf(stderr, "Unable to print range %s\n", ranges.arr[i].name);
-				}
+out:
+			for (j = 0; j < i; j++){
+				pthread_join(thds[j], fs); // I don't care for retval
 			}
-			for (i = 0; i < files.num_files; i++){
-				it_deinit(&global_rf.it); // init covered by deinit
-				if (query_select_file_intervals(&global_rf, files.arr[i]) >= 0){
-					do_print_file(&global_rf);
-				}
-				else{
-					fprintf(stderr, "Unable to print file %s\n", fiels.arr[i]);
-				}
-			}
+			free(thds);
 			break;
 		case '?':
 			err(1);
@@ -423,9 +441,10 @@ int main(int argc, char* argv[]){
 		print_usage(argv[0]);
 		err(0);
 	}
-	err_out(!a_list_init(&ranges.ls, sizeof(struct range))
-		|| !a_list_init(&files.ls, sizeof(char*))
-		|| !getcwd(buf, PATH_MAX), "Failed to initialize\n");
+	err_out(!getcwd(buf, PATH_MAX)
+		|| range_init(&global_r) < 0
+		|| pthread_mutex_init(print_lock),
+		"Failed to initialize\n");
 	it_init(&global_rf.it);
 	opts(argc, argv);
 	
