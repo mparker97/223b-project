@@ -1,38 +1,31 @@
-#ifndef INTERVAL_TREE_H
-#define INTERVAL_TREE_H
 #include <string.h>
 #include "common.h"
-#include "interval_tree.h"
 #include "list.h"
+#include "interval_tree.h"
 
-// linked list because we don't have time to get fancy
-struct it_head{
-	struct l_list ls;
-};
-
-void it_init(struct it_head* it){
-	it->ls = L_LIST_NULL;
+void it_init(struct l_list* it){
+	*it = L_LIST_NULL;
 }
 
-void it_deinit(struct it_head* it){
+void it_deinit(struct l_list* it){
 	struct it_node* p;
-	while (it->ls.next){
-		p = container_of(&it->ls.next, struct it_node, ls);
-		it->ls.next = &p->ls;
+	while (it->next){
+		p = container_of(&it->next, struct it_node, ls);
+		it->next = &p->ls;
 		free(p);
 	}
-	it->ls = L_LIST_NULL;
+	*it = L_LIST_NULL;
 }
 
-int it_intersect(struct it_node* a, struct it_node* b){
+inline int it_intersect(struct it_node* a, struct it_node* b){
 	if (a->base <= b->bound && b->base <= a->bound)
 		return 1;
 	return 0;
 }
 
-struct it_node* it_insert(struct it_head* it, size_t base, size_t bound, unsigned long id){ // not at all thread safe
+struct it_node* it_insert(struct l_list* it, size_t base, size_t bound, unsigned long id){ // not at all thread safe
 	struct it_node* p_itn, *p_f;
-	struct l_list* save = &it->ls;
+	struct l_list* save = &it;
 	struct it_node f = (struct it_node){
 		.ls = L_LIST_NULL,
 		.id = id,
@@ -85,5 +78,3 @@ void print_it(struct it_node* it, char* tab_buf){
 		printf("%sBase: %lu; Bound: %lu\n", tab_buf, it->base, it->bound);
 	);
 }
-
-#endif

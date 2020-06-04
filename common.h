@@ -32,9 +32,10 @@
 	} while (0)
 
 extern pthread_mutex_t print_lock;
-void global_rs_deinit();
+//extern void global_rs_deinit();
+#include "range.h"
 
-void err(int e){
+static void err(int e){
 	global_rs_deinit();
 	pthread_mutex_destroy(&print_lock);
 	sql_end();
@@ -42,7 +43,7 @@ void err(int e){
 	exit(e);
 }
 
-void err_out(bool cond, char* msg, ...){
+static void err_out(bool cond, char* msg, ...){
 	va_list ap;
 	if (cond){
 		va_start(ap, msg);

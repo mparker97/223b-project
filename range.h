@@ -5,7 +5,7 @@
 #include "interval_tree.h"
 
 struct range_file{
-	struct it_head it;
+	struct l_list it;
 	char* file_path;
 	unsigned long id;
 	char mode;
@@ -28,7 +28,7 @@ struct range_file* range_add_new_file(struct range* r, char* file_path, unsigned
 void print_file(struct range_file* rf, char* tab_buf);
 void print_range(struct range* r, char* tab_buf);
 
-void do_print_range(struct range* r){
+static void do_print_range(struct range* r){
 	char tab_buf[8];
 	tab_buf[0] = 0;
 	pthread_mutex_lock(&print_lock);
@@ -36,7 +36,7 @@ void do_print_range(struct range* r){
 	pthread_mutex_unlock(&print_lock);
 }
 
-void do_print_file(struct range_file* rf){
+static void do_print_file(struct range_file* rf){
 	char tab_buf[8];
 	tab_buf[0] = 0;
 	pthread_mutex_lock(&print_lock);

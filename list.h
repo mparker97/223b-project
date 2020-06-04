@@ -35,7 +35,7 @@ union{ \
 
 #define a_list_index(list, elm_sz, i) ((char*)((list)->ls) + (i) * (elm_sz))
 
-void* a_list_init(struct a_list* ls, size_t elm_sz){
+static void* a_list_init(struct a_list* ls, size_t elm_sz){
 	if (!ls->ls){
 		if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
 			return NULL;
@@ -45,7 +45,7 @@ void* a_list_init(struct a_list* ls, size_t elm_sz){
 	return ls->ls;
 }
 
-void a_list_deinit(struct a_list* ls){
+static void a_list_deinit(struct a_list* ls){
 	if (ls->ls){
 		free(ls->ls);
 		ls->ls = NULL;
@@ -53,7 +53,7 @@ void a_list_deinit(struct a_list* ls){
 	}
 }
 
-void* a_list_add(struct a_list* ls, size_t elm_sz){
+static void* a_list_add(struct a_list* ls, size_t elm_sz){
 	if (!(ls->sz & (ls->sz - 1)) && ls->sz >= A_LIST_INIT_LEN){
 		if (!(ls->ls = realloc(ls->ls, ls->sz * 2 * elm_sz))){
 			return NULL;
@@ -62,7 +62,7 @@ void* a_list_add(struct a_list* ls, size_t elm_sz){
 	return &((char*)(ls->ls))[ls->sz++ * elm_sz];
 }
 
-void* a_list_addc(struct a_list* ls, size_t elm_sz){
+static void* a_list_addc(struct a_list* ls, size_t elm_sz){
 	void* r = a_list_add(ls, elm_sz);
 	if (r){
 		memset(r, 0, elm_sz);
@@ -70,7 +70,7 @@ void* a_list_addc(struct a_list* ls, size_t elm_sz){
 	return r;
 }
 
-int a_list_delete(struct a_list* ls, size_t elm_sz, int idx){ // & shift
+static int a_list_delete(struct a_list* ls, size_t elm_sz, int idx){ // & shift
 	int ret = -1;
 	char* c;
 	if (idx >= 0){
@@ -83,7 +83,7 @@ int a_list_delete(struct a_list* ls, size_t elm_sz, int idx){ // & shift
 	return ret;
 }
 
-void a_list_sort(struct a_list* ls, size_t elm_sz, int (*f)(const void*, const void*)){
+static inline void a_list_sort(struct a_list* ls, size_t elm_sz, int (*f)(const void*, const void*)){
 	qsort(ls->ls, ls->sz, elm_sz, f);
 }
 

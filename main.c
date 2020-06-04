@@ -302,7 +302,7 @@ void* thd_pfile(void* arg){
 	else{
 		fprintf(stderr, "Unable to print file %s\n", name);
 	}
-	rf_deinit(&rf);
+	range_file_deinit(&rf);
 	return NULL;
 }
 
@@ -325,17 +325,7 @@ void opts(int argc, char* argv[]){
 			if (!strncmp(argv[optind], "-f", 2)){
 				optind++;
 			}
-			/*foreach_optarg(argc, argv){
-				cp = a_list_add(&files.ls, sizeof(char*));
-				err_out(!cp, "Failed to capture file %s\n", argv[optind]);
-				*cp = &argv[optind];
-				i++;
-			}*/
 			err_out(query_select_named_range(&global_r) < 0, "");
-			/*if (i){
-				a_list_sort(&files.ls, sizeof(char*), COMP_STRING);
-				
-			}*/
 			open_files(&global_r);
 			break;
 		case 'n': // i[n]sert

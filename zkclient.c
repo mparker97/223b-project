@@ -151,7 +151,7 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     // 47 = 10 for "/interval/" + 1 for '\0' + 1 for '-' + 11 for offset_id number 
     int len = strlen(context->parent_path) + 23;
     char buf[len];
-    sprintf(buf, "%s/interval/%d-", context->parent_path, context->offset_id);
+    sprintf(buf, "%s/interval/%lu-", context->parent_path, context->offset_id);
     // 11 for the <SEQUENCE>
     char full_path[len + 11];
 
@@ -209,7 +209,7 @@ static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, s
     // 10 for "/interval/" + 1 for '\0' + 23 for "<offset_id>-<sequence>"
     int len = strlen(context->parent_path) + 34;
     char buf[len];
-    sprintf(buf, "%s/interval/%d-%010d", context->parent_path,
+    sprintf(buf, "%s/interval/%lu-%010d", context->parent_path,
             (*found_interval)->id, (*found_interval)->sequence);
     
     struct Stat stat;
@@ -218,7 +218,7 @@ static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, s
     while (ret != ZOK && retry_count < 3) {
         ret = zoo_wexists(zh, buf, watcher, (void*) context, &stat);
         if (ret != ZOK) {
-            nanosleep(&ts, 0);
+            nanosleep(ts, 0);
             retry_count++;
         }
     }
@@ -314,7 +314,7 @@ static it_node_t** _sort_interval_locks_by_offset_id(struct String_vector * inte
             _free_intervals_array(intervals_array, i);
             return NULL;
         }
-        sscanf(interval_children->data[i], "%d-%d", &(cur_interval->id), &(cur_interval->sequence));
+        sscanf(interval_children->data[i], "%lu-%d", &(cur_interval->id), &(cur_interval->sequence));
         intervals_array[i] = cur_interval;
     }
 
@@ -345,7 +345,7 @@ static char* getLockName(char* str) {
  * get the sequence number from the lock_name returned from zookeeper
  */
 static size_t getSequenceNumber(char* lock_name) {
-    char* lock_name = strrchr(lock_name, '/');
+    lock_name = strrchr(lock_name, '/');
     if (lock_name == NULL) 
         return 0;
 
