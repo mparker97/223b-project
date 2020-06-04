@@ -28,20 +28,15 @@
 		(buf)[TAB_OUT_BUF_LEN] = 0; \
 	} while (0)
 
-extern char** p_exe_path;
-extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
+extern struct range global_r;
 //extern A_LIST_UNION(char*, arr, num_files, ls) files;
 extern struct range_file global_rf;
 extern pthread_mutex_t print_lock;
 
 void err(int e){
-	int i;
-	for (i = 0; i < ranges.num_ranges; i++){
-		range_deinit(&ranges.arr[i]);
-	}
-	a_list_deinit(&ranges.ls);
-	a_list_deinit(&files.ls);
+	range_deinit(&global_r);
 	it_deinit(&global_rf.it);
+	pthread_mutex_destroy(&print_lock);
 	// other frees
 	exit(e);
 }
@@ -125,8 +120,6 @@ union{ \
 	}; \
 	struct a_list n2; \
 }
-
-extern A_LIST_UNION(struct range, arr, num_ranges, ls) ranges;
 
 #define a_list_index(list, elm_sz, i) ((char*)((list)->ls) + (i) * (elm_sz))
 

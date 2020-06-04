@@ -20,11 +20,11 @@
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
-char** p_exe_path;
-struct range* global_r;
+struct range global_r;
 //A_LIST_UNION(char*, arr, num_files, ls) files;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
+static char** p_exe_path;
 static char swp_dir[PATH_MAX];
 static char oracle[] = {"/*OPEN_ORACLE*/", "/*CLOSE_ORACLE*/"};
 static char mode = 0;
@@ -88,7 +88,7 @@ ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off)
 	return -1;
 }
 
-void add_oracle_bytes(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
+void add_oracle(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
 	struct it_node* p_itn;
 	size_t src_pos = 0;
 	it_foreach(&rf->it, p_itn){
@@ -125,7 +125,7 @@ int pull_swap_file(struct range_file* rf){
 	fstat(backing_fd, &f_stat);
 	oracle_len[0]--;
 	oracle_len[1]--;
-	add_oracle_bytes(swp_fd, backing_fd, rf, oracle, oracle_len);
+	add_oracle(swp_fd, backing_fd, rf, oracle, oracle_len);
 	cp_bytes(swp_fd, backing_fd, f_stat.st_size - lseek(backing_fd, 0, SEEK_SET));
 	
 	close(backing_fd);
@@ -208,7 +208,7 @@ int exec_editor(char* f_path){
 	return f;
 }
 
-struct open_files_thread{
+static struct open_files_thread{
 	pthread_t thd;
 	struct range_file* rf;
 };
@@ -252,7 +252,6 @@ void open_files(struct range* r){
 	for (i = 0; i < r->num_files; i++){
 		thds[i].rf = &r->files[i];
 		pthread_create(&thds[i].thd, NULL, open_files_func, &thds[i]);
-		
 	}
 	for (i = 0; i < r->num_files; i++){
 		pthread_join(thds[i].thd, &retval);
@@ -442,7 +441,6 @@ int main(int argc, char* argv[]){
 		err(0);
 	}
 	err_out(!getcwd(buf, PATH_MAX)
-		|| range_init(&global_r) < 0
 		|| pthread_mutex_init(print_lock),
 		"Failed to initialize\n");
 	it_init(&global_rf.it);
