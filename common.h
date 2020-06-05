@@ -10,7 +10,6 @@
 #include <stdbool.h>
 #include "sql.h"
 
-#define BITS_PER_BYTE 8
 #define PATH_MAX 4095
 #define ORACLE_LEN_MIN 8
 #define ORACLE_LEN_MAX 255

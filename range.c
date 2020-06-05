@@ -26,7 +26,7 @@ void range_deinit(struct range* r){
 	if (r->files){
 		for (i = 0; i < r->num_files; i++){
 			free(r->files[i].file_path);
-			it_deinit(&r->files[i].it);
+			range_file_deinit(&r->files[i]);
 		}
 	}
 	a_list_deinit(&r->ls);
@@ -34,6 +34,7 @@ void range_deinit(struct range* r){
 
 void range_file_deinit(struct range_file* rf){
 	it_deinit(&rf->it);
+	rf->num_it = 0;
 }
 
 struct range_file* range_add_file(struct range* r, char* file_path, unsigned long id){
@@ -48,6 +49,7 @@ struct range_file* range_add_file(struct range* r, char* file_path, unsigned lon
 	if (rf){
 		rf->file_path = str;
 		rf->id = id;
+		rf->num_it = 0;
 		return rf;
 	}
 fail:
@@ -64,6 +66,15 @@ struct range_file* range_add_new_file(struct range* r, char* file_path, unsigned
 		}
 	}
 	return range_add_file(r, file_path, id);
+}
+
+struct it_node* range_file_add_it(struct range_file* rf, size_t base, size_t bound, unsigned long id){
+	int new;
+	struct it_node* ret = it_insert_new(&new, &rf->it, base, bound, id);
+	if (ret && new){
+		rf->num_it++;
+	}
+	return ret;
 }
 
 void print_file(struct range_file* rf, char* tab_buf){

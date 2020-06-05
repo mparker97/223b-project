@@ -9,7 +9,7 @@ struct range_file{
 	struct l_list it;
 	char* file_path;
 	unsigned long id;
-	char mode;
+	int num_it;
 };
 
 struct range{
@@ -26,8 +26,10 @@ void range_deinit(struct range* r);
 void range_file_deinit(struct range_file* rf);
 struct range_file* range_add_file(struct range* r, char* file_path, unsigned long id);
 struct range_file* range_add_new_file(struct range* r, char* file_path, unsigned long id);
+struct it_node* range_file_add_it(struct range_file* rf, size_t base, size_t bound, unsigned long id);
 void print_file(struct range_file* rf, char* tab_buf);
 void print_range(struct range* r, char* tab_buf);
+
 
 static void do_print_range(struct range* r){
 	char tab_buf[8];
