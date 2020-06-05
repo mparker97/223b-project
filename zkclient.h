@@ -17,8 +17,7 @@ typedef struct zk_lock_context {
     size_t bound;
     // non-zero if lock was acquired
     int owner;  
-    // 0 if "master" lock, 1 if "interval" lock
-    int lock_type;
+    // callback functions after watcher determines lock has been acquired
     zk_lock_callback cb_fn;
     void* cb_data;
 

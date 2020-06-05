@@ -44,18 +44,11 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
         ts.tv_sec = 0;
         ts.tv_nsec = (.5)*1000000;
 
-        if (zkcontext->lock_type == MASTER_LOCK_TYPE) {
-            // TODO
-            // get all children on parent znode
-        }
-        // zkcontext->lock_type == INTERVAL_LOCK_TYPE
-        else {
-            // helper function will set watch if not owner
-            _zk_determine_interval_lock_eligibility(zkcontext, &ts);
-            if (zkcontext->owner) {
-                // successfully acquired lock
-                zkcontext->cb_fn(zkcontext->cb_data);
-            }
+        // helper function will set watch if not owner
+        _zk_determine_interval_lock_eligibility(zkcontext, &ts);
+        if (zkcontext->owner) {
+            // successfully acquired lock
+            zkcontext->cb_fn(zkcontext->cb_data);
         } 
     }
 }
