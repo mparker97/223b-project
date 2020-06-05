@@ -28,9 +28,4 @@ int it_intersect(struct it_node* a, struct it_node* b);
 struct it_node* it_insert(struct l_list* it, size_t base, size_t bound, unsigned long id);
 void print_it(struct it_node* it, char* tab_buf);
 
-// sort array of it_nodes by the sequence number
-static void sort_intervals_array_by_sequence(it_node_t* intervals) {
-	// TODO
-}
-
 #endif
