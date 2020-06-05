@@ -25,6 +25,7 @@ typedef struct it_array {
 void it_init(struct l_list* it);
 void it_deinit(struct l_list* it);
 int it_intersect(struct it_node* a, struct it_node* b);
+struct it_node* it_insert_new(int* new, struct l_list* it, size_t base, size_t bound, unsigned long id);
 struct it_node* it_insert(struct l_list* it, size_t base, size_t bound, unsigned long id);
 void print_it(struct it_node* it, char* tab_buf);
 

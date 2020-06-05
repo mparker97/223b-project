@@ -23,7 +23,7 @@ inline int it_intersect(struct it_node* a, struct it_node* b){
 	return 0;
 }
 
-struct it_node* it_insert(struct l_list* it, size_t base, size_t bound, unsigned long id){ // not at all thread safe
+struct it_node* it_insert_new(int* new, struct l_list* it, size_t base, size_t bound, unsigned long id){ // not at all thread safe
 	struct it_node* p_itn, *p_f;
 	struct l_list* save = it;
 	struct it_node f = (struct it_node){
@@ -32,6 +32,7 @@ struct it_node* it_insert(struct l_list* it, size_t base, size_t bound, unsigned
 		.base = base,
 		.bound = bound,
 	};
+	*new = 0;
 	p_f = &f;
 	it_foreach(it, p_itn){
 		if (it_intersect(p_f, p_itn)){
@@ -68,9 +69,15 @@ struct it_node* it_insert(struct l_list* it, size_t base, size_t bound, unsigned
 		if (p_f != NULL){
 			memcpy(p_f, &f, sizeof(struct it_node));
 			l_list_add_after(save, &p_f->ls);
+			*new = 1;
 		}
 	}
 	return p_f;
+}
+
+struct it_node* it_insert(struct l_list* it, size_t base, size_t bound, unsigned long id){
+	int new;
+	return it_insert_new(&new, it, base, bound, id);
 }
 
 void print_it(struct it_node* it, char* tab_buf){

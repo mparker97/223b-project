@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include "file.h"
 #include "sql.h"
 #include "common.h"
 #include "interval_tree.h"
@@ -119,8 +120,8 @@ static const char* QUERY_RESIZE_FILE[] = {
 	
 	"SELECT OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId; 
 	// for each offset in this file for the range {
-		"SET @oid = ?, @ob = ?, @nb = ?", // offsetId, old_bound, new_bound
-		"SELECT Base INTO @b FROM Offset WHERE OffsetId = @oid", // base
+		"SET @oid = ?, @nb = ?", // offsetId, new_bound
+		"SELECT Base, Bound INTO @b, @ob FROM Offset WHERE OffsetId = @oid", // base, bound
 		"UPDATE Offset SET \
 			Base = CASE \
 				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @nb - @ob \
@@ -244,7 +245,7 @@ int query_select_named_range(struct range* r){	// range already has r->name
 					if (conflict){
 						printf("Warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 					}
-					if (!it_insert(&rf->it, base, bound, offsetId)){
+					if (!range_file_add_it(rf, base, bound, offsetId)){
 						goto fail;
 					}
 				}
@@ -310,9 +311,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_
 						printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 					}
 					it_node_t* cur_interval = (it_node_t*) malloc(sizeof(it_node_t));
-					if (cur_interval == NULL) {
-						goto fail;
-					}
+					fail_check(cur_interval == NULL);
 					cur_interval->ls = L_LIST_NULL;
 					cur_interval->base = base;
 					cur_interval->bound = bound;
@@ -409,7 +408,7 @@ int query_insert_named_range(struct range* r){
 			}
 		}
 	}
-	//fail_check(!mysql_stmt_execute(stmt[5]));
+	fail_check(!mysql_stmt_execute(stmt[5]));
 	TXN_COMMIT;
 	goto pass;
 fail:
@@ -423,31 +422,34 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_resize_file(struct range_file* rf){
+int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	#define NUM_STMT 4
 	#define NUM_BIND 5
-	int ret = 0;
+	int ret = 0, i = 0;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn, itn;
-	unsigned long base;
+	struct offset_update* ou;
+	unsigned long db_base, db_bound;
 	int succ;
 	char null, error;
 	
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
 	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
-	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // old_bound
-	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // new_bound; overwriting the 'base' field
-	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // new_bound
+	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &db_base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
+	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &db_bound, sizeof(size_t), NULL, &null, true, &error); // Offset.Bound
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
 		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[0], NULL) ||
 		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], NULL) ||
-		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, &bind[4]) ||
+		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, &bind[3]) ||
 		pps(&stmt[3], QUERY_RESIZE_FILE[3], &bind[0], NULL)
 	);
+	ou = malloc(rf->num_it * sizeof(struct offset_update));
+	fail_check(ou);
 	
 	TXN_START;
 	
@@ -456,13 +458,16 @@ int query_resize_file(struct range_file* rf){
 		memcpy(&itn, p_itn, sizeof(struct it_node));
 		fail_check(!mysql_stmt_execute(stmt[1]));
 		fail_check(!mysql_stmt_execute(stmt[2]));
-		succ = mysql_stmt_fetch(stmt[2]); // get updated old base from DB
+		succ = mysql_stmt_fetch(stmt[2]); // get updated old base and bound from DB
 		fail_check(succ != 1 && succ != MYSQL_NO_DATA);
-		// TODO: updated old base from DB in base
 		fail_check(!mysql_stmt_execute(stmt[3]));
-		p_itn->base = base; // update it_node's field with new base
+		ou[i].backing_start = db_base;
+		ou[i].backing_end = db_bound;
+		ou[i].swp_start = itn.base;
+		ou[i].swp_end = itn.bound;
+		i++;
 	}
-	// TODO: write to file at the same time? Should definitely be done w/i transaction
+	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd) > 0);
 	
 	TXN_COMMIT;
 	goto pass;
@@ -471,6 +476,8 @@ fail:
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
 pass:
+	if (ou)
+		free(ou);
 	close_stmts(stmt, NUM_STMT);
 	return ret;
 	#undef NUM_BIND
