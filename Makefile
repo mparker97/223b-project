@@ -22,8 +22,8 @@ $(ZKOS): %.o: %.c $(ZKHS)
 
 .PHONY: zookeeper
 zookeeper: $(ZKOS)
-	$(CC) -o $@.o $^ $(CFLAGS) $(ZKLIBS)
 
 .PHONY: clean
 clean:
 	rm -f ./*.o
+	rm -f 223b
