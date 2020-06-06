@@ -46,10 +46,11 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
         ts.tv_nsec = (.5)*1000000;
 
         // helper function will set watch if not owner
-        _zk_determine_interval_lock_eligibility(zkcontext, &ts);
+        // TODO change for master lock_zk_determine_interval_lock_eligibility(zkcontext, &ts);
         if (zkcontext->lock_acquired) {
             // successfully acquired lock
             fprintf(stdout, "successfully acquired lock on delete");
+            pthread_mutex_unlock(&(zkcontext->pmutex));
         } 
     }
 }

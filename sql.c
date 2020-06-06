@@ -262,7 +262,7 @@ int query_select_named_range(struct range* r){ // range already has r->name
 		totalCount += rf->num_it;
 		it_node_t* cur_interval;
 		it_foreach(&rf->it, cur_interval){
-			int res = zk_acquire_interval_lock(rf);
+			int res = zk_acquire_interval_lock(cur_interval);
 			if (res != ZOK) {
 				goto fail;
 			}
@@ -283,9 +283,13 @@ int query_select_named_range(struct range* r){ // range already has r->name
 	TXN_COMMIT;
 	goto pass;
 fail:
-	// delete all possibly acquired interval locks
+	// retry delete all possibly acquired interval locks
 	for (int i = 0; i < r->num_files; i++){
-		zk_release_lock(r->files + i, 1);
+		rf = r->files + i;
+		it_node_t* cur_interval;
+		it_foreach(&rf->it, cur_interval){
+			zk_release_lock(cur_interval, 1);
+		}
 	}
 	TXN_ROLLBACK;
 	ret = -1;
@@ -488,7 +492,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	// ZK UNLOCK
 	int releaseCount = 0;
 	it_foreach(&rf->it, p_itn) {
-		int ret = zk_release_lock(rf, 1);
+		int ret = zk_release_lock(p_itn, 1);
 		if (ret == ZOK) {
 			releaseCount++;
 		}
@@ -519,7 +523,9 @@ fail:
 pass:
 	// release failed earlier
 	if (releaseCount != rf->num_it) {
-		zk_release_lock(rf, 1);
+		it_foreach(&rf->it, p_itn) {
+			zk_release_lock(p_itn, 1);
+		}
 	}
 	if (ou)
 		free(ou);
