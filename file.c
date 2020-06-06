@@ -13,6 +13,7 @@
 #include "sql.h"
 #include "common.h"
 #include "interval_tree.h"
+#include "zkclient.h"
 
 const char* DEFAULT_START_ORACLE = "[START ORACLE]";
 const char* DEFAULT_END_ORACLE = "[END ORACLE]";
@@ -40,9 +41,13 @@ void get_path_by_fd(char* path, int fd){
 static void unlink_by_fd(int fd){
 	char* path = NULL;
 	get_path_by_fd(path, fd);
-	err_out(!path, "Failed to unlink fd %d\n", fd);
-    unlink(path);
-	free(path);
+	if (!path){
+		fprintf(stderr, "Failed to unlink fd %d\n", fd);
+	}
+	else{
+		unlink(path);
+		free(path);
+	}
 }
 
 static ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off){ // search file identified by descriptor fd for string s of length s_len, starting at offset off
@@ -94,8 +99,9 @@ int pull_swap_file(struct range_file* rf){
 	int swp_fd = 0, backing_fd = 0;
 	char* s;
 	struct stat f_stat;
+	it_node_t zkcontext;
 	size_t oracle_len[2];
-	char path[32];
+	//char path[32];
 
 	if (!(s = swap_file_path(swp_dir, rf->file_path))){
 		fprintf(stderr, "Failed to malloc swap file name for %s\n", rf->file_path);
@@ -106,12 +112,25 @@ int pull_swap_file(struct range_file* rf){
 	oracle_len[0] = strlen(start_oracle);
 	oracle_len[1] = strlen(end_oracle);
 	
-	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
+	// master read lock
+	zkcontext.lock_type = LOCK_TYPE_MASTER_READ;
+	zkcontext.file_path = rf->file_path;
+	pthread_mutex_init(&(zkcontext.pmutex), NULL);
+	if (zk_acquire_lock(&zkcontext) != ZOK){
+		goto fail;
+	}
+	if (!zkcontext.lock_acquired) {
+		// watcher in zkclient will unlock once lock gets acquired
+		pthread_mutex_lock(&(zkcontext.pmutex));
+	}
+	
+	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		goto fail;
 	}
-	swp_fd = open(swp_dir, O_RDWR /*| O_TMPFILE*/, S_IRWXU);
+	//swp_fd = open(swp_dir, O_RDWR /*| O_TMPFILE*/, S_IRWXU);
+	swp_fd = open(s, O_RDWR | O_CREAT, S_IRWXU);
 	if (swp_fd < 0){
 		fprintf(stderr, "Failed to create swap file for %s\n", rf->file_path);
 		goto fail;
@@ -123,9 +142,10 @@ int pull_swap_file(struct range_file* rf){
 	add_oracles(swp_fd, backing_fd, rf, oracle, oracle_len);
 	
 	close(backing_fd);
-    snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
-    linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
+    //snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
+    //linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
 	free(s);
+	fsync(swp_fd):
 	return swp_fd;
 fail:
 	if (backing_fd >= 0)
@@ -134,7 +154,6 @@ fail:
 		close(swp_fd);
 	if (s)
 		free(s);
-	err(1);
 	return -1;
 }
 
@@ -143,7 +162,22 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 	size_t oracle_len[2] = {strlen(start_oracle), strlen(end_oracle)};
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
-	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
+	
+	// master write lock
+	it_node_t zkcontext;
+	zkcontext.lock_type = LOCK_TYPE_MASTER_WRITE;
+	zkcontext.file_path = rf->file_path;
+	pthread_mutex_init(&(zkcontext.pmutex), NULL);
+	int ret = zk_acquire_lock(&zkcontext);
+	if (ret != ZOK) {
+		goto pass;
+	}
+	if (!zkcontext.lock_acquired) {
+		// watcher in zkclient will unlock once lock gets acquired
+		pthread_mutex_lock(&(zkcontext.pmutex));
+	}
+	
+	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		ret = -1;
@@ -196,7 +230,8 @@ static int exec_editor(char* f_path){
 		p_exe_path[-1] = p_exe_path[0];
 		p_exe_path[0] = f_path;
 		execvp(p_exe_path[-1], &p_exe_path[-1]);
-		err_out(true, "Failed to run executable %s\n", tmp);
+		fprintf(stderr, "Failed to run executable %s\n", tmp);
+		return -1;
 	}
 	else{
 		printf("Writing file %s from pid %d\n", f_path, f);
@@ -255,10 +290,30 @@ void open_files(struct range* r){
 		free(thds);
 }
 
+const char* BACKING_SWAP_DIR = "/I/dont/know/where/to/point/this";
+
 int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd){
-	int i;
+	int ret = 0; i;
+	int dir_fd, repl_fd;
+	dir_fd = open(BACKING_SWAP_DIR, O_PATH | O_DIRECT);
+	if (dir_fd < 0){
+		fprintf(stderr, "Failed to open directory %s\n", BACKING_SWAP_DIR);
+	}
+	repl_fd = openat(dir_fd, );
 	for (i = 0; i < len; i++){
 		lseek(swp_fd, ou[i].swp_start, SEEK_SET);
 		// TODO
 	}
+	fsync(backing_fd);
+goto pass;
+fail:
+	close(swp_fd);
+	close(backing_fd);
+	ret = -1;
+pass:
+	if (dir_fd >= 0)
+		close(dir_fd);
+	if (repl_fd >= 0)
+		close(repl_fd);
+	return ret;
 }

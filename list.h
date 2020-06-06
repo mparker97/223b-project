@@ -38,12 +38,10 @@ static inline void l_list_add_after(struct l_list* curr, struct l_list* n){
 #define a_list_index(list, elm_sz, i) ((char*)((list)->ls) + (i) * (elm_sz))
 
 static void* a_list_init(struct a_list* ls, size_t elm_sz){
-	if (!ls->ls){
-		if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
-			return NULL;
-		}
-		ls->sz = 0;
+	if (!(ls->ls = calloc(A_LIST_INIT_LEN, elm_sz))){
+		return NULL;
 	}
+	ls->sz = 0;
 	return ls->ls;
 }
 

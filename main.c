@@ -1,7 +1,5 @@
 #include <stdio.h>
 #include <unistd.h>
-//#include <fcntl.h>
-//#include <sys/stat.h>
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +11,6 @@
 #include "common.h"
 #include "range.h"
 #include "help.h"
-#include "zkclient.h"
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
@@ -41,14 +38,15 @@ void get_range(size_t* base, size_t* bound, char* str){
 void* thd_prange(void* arg){
 	struct range r;
 	char* name = (char*)arg;
-	range_init(&r, name);
-	if (query_select_named_range(&r) >= 0){
-		do_print_range(&r);
+	if (range_init(&r, name) >= 0){
+		if (query_select_named_range(&r) >= 0){
+			do_print_range(&r);
+		}
+		else{
+			fprintf(stderr, "Unable to print range %s\n", name);
+		}
+		range_deinit(&r);
 	}
-	else{
-		fprintf(stderr, "Unable to print range %s\n", name);
-	}
-	range_deinit(&r);
 	return NULL;
 }
 

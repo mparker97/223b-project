@@ -7,6 +7,7 @@
 #include "common.h"
 #include "interval_tree.h"
 #include "range.h"
+#include "zkclient.h"
 
 // do while (0) to allow semicolon after
 #define fail_check(c) \
@@ -42,15 +43,13 @@ static const char* QUERY_SELECT_NAMED_RANGE = "\
 	ORDER BY File.FilePath, Offset.Base"; // Range.RangeName
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
-	"SELECT FileId FROM File WHERE FilePath = \"?\") FOR SHARE", // file_path
-	"SELECT Base, Bound FROM Offset WHERE OffsetId = ?", // cur_id; base, bound
-	"SELECT Base, Bound, OffsetId, Conflict \
-	FROM Offset \
-	WHERE FileId = ?" // file_id
+	"SELECT FileId FROM File WHERE FilePath = \"?\")", // file_path
+	"SELECT Base, Bound FROM Offset WHERE OffsetId = ?", // base, bound; cur_id
+	"SELECT Base, Bound, OffsetId, Conflict FROM Offset WHERE Offset.FileId = ?" // file_id
 };
 
 static const char* QUERY_INSERT_NAMED_RANGE[] = {
-	"INSERT INTO Range (RangeName, init) VALUES (\"?\", FALSE)", // insert new range name
+	"INSERT INTO Range (RangeName, Init) VALUES (\"?\", FALSE)", // insert new range name
 	// mysql_insert_id to get rangeId
 	// for each file {
 		"INSERT INTO File (FilePath) VALUES (\"?\")", // insert new file path
@@ -65,7 +64,7 @@ static const char* QUERY_INSERT_NAMED_RANGE[] = {
 			"INSERT INTO Offset (FileId, Base, Bound) VALUES (?, ?, ?)", // fileId, base, bound, mode
 		// }
 	// }
-	"UPDATE Range SET Range.Init = TRUE WHERE Range.RangeId = ?" // rangeId
+	"UPDATE Range SET Init = TRUE WHERE RangeId = ?" // rangeId
 };
 
 static const char* QUERY_RESIZE_FILE[] = {
@@ -173,8 +172,8 @@ int pps(MYSQL_STMT** ret, const char* query, MYSQL_BIND* in, MYSQL_BIND* out){ /
 	MYSQL_STMT* stmt;
 	fail_check(stmt = mysql_stmt_init(&mysql));
 	fail_check(!mysql_stmt_prepare(stmt, QUERY_SELECT_NAMED_RANGE, strlen(QUERY_SELECT_NAMED_RANGE)));
-	fail_check(!in || mysql_stmt_bind_param(stmt, in));
-	fail_check(!out || mysql_stmt_bind_result(stmt, out));
+	fail_check(in == NULL || mysql_stmt_bind_param(stmt, in));
+	fail_check(out == NULL || mysql_stmt_bind_result(stmt, out));
 	*ret = stmt;
 	return 1;
 fail:
@@ -248,18 +247,39 @@ int query_select_named_range(struct range* r){ // range already has r->name
 		range_file_add_it(rf, base, bound, offsetId); // no failure; just don't include it
 	}
 	
-	/*TODO: ZK LOCK
-	if (successful){
+	// iterate through all range files and attempt acquiring interval locks
+	int acquiredCount = 0;
+	int totalCount = 0;
+	for (int i = 0; i < r->num_files; i++){
+		rf = r->files + i;
+		totalCount += rf->num_it;
+		it_node_t* cur_interval;
+		it_foreach(&rf->it, cur_interval){
+			int res = zk_acquire_interval_lock(rf);
+			if (res != ZOK) {
+				goto fail;
+			}
+			if (rf->lock_acquired) {
+				acquiredCount++;
+			}
+		}
+	}
+	// successfully acquired all locks
+	if (acquiredCount == totalCount) {
 		open_files(r);
 	}
 	else {
 		fprintf(stderr, "Range %s is already in use\n", r->name);
 		goto fail;
-	}*/
+	}
 	
 	TXN_COMMIT;
 	goto pass;
 fail:
+	// delete all possibly acquired interval locks
+	for (int i = 0; i < r->num_files; i++){
+		zk_release_interval_lock(r->files + i);
+	}
 	TXN_ROLLBACK;
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
@@ -281,7 +301,6 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	unsigned long len;
 	char conflict;
 	char null, error;
-	struct it_node_t new_interval;
 	struct l_list *cur_ls = &rf->it;
 	
 	len = strlen(file_path);
@@ -296,7 +315,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	fail_check(
 		pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[1], &bind[0]) &&
 		pps(&stmt[1], QUERY_SELECT_NAMED_RANGE, &bind[4], &bind[2]) &&
-		pps(&stmt[2], QUERY_SELECT_NAMED_RANGE, &bind[0], &bind[2])
+		pps(&stmt[1], QUERY_SELECT_NAMED_RANGE, &bind[0], &bind[2])
 	);
 	rf->file_path = NULL;
 	
@@ -305,14 +324,13 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	fail_check(!mysql_stmt_execute(stmt[0]));
 	succ = mysql_stmt_fetch(stmt[0]);
 	fail_check(succ != 1 && succ != MYSQL_NO_DATA);
+	fail_check(rf->file_path = strdup(file_path));
+	rf->id = fileId;
 	
 	offsetId = cur_id;
 	fail_check(!mysql_stmt_execute(stmt[1]));
-	// TODO Thant: base and bound are in variables "base" and "bound"
+	// TODO: Thant: new values are in base and bound
 	
-	fail_check(rf->file_path = strdup(file_path));
-	rf->id = fileId;
-	null = false;
 	fail_check(!mysql_stmt_execute(stmt[2]));
 	fail_check(!mysql_stmt_store_result(stmt[2]));
 	for (;;){
@@ -464,8 +482,14 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	
 	TXN_START;
 	
-	// TODO: ZK UNLOCK
-	zk_release = 1;
+	// ZK UNLOCK
+	int releaseCount = 0;
+	it_foreach(&rf->it, p_itn) {
+		int ret = zk_release_interval_lock(rf);
+		if (ret == ZOK) {
+			releaseCount++;
+		}
+	}
 	
 	fail_check(!mysql_stmt_execute(stmt[0]));
 	it_foreach(&rf->it, p_itn){
@@ -490,8 +514,10 @@ fail:
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
 pass:
-	if (!zk_release)
-		// TODO: ZK UNLOCK
+	// release failed earlier
+	if (releaseCount != rf->num_it) {
+		zk_release_interval_lock(rf);
+	}
 	if (ou)
 		free(ou);
 	close_stmts(stmt, NUM_STMT);
