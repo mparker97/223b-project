@@ -262,11 +262,13 @@ int query_select_named_range(struct range* r){ // range already has r->name
 		totalCount += rf->num_it;
 		it_node_t* cur_interval;
 		it_foreach(&rf->it, cur_interval){
-			int res = zk_acquire_lock(cur_interval, LOCK_TYPE_INTERVAL);
+			cur_interval->file_path = rf->file_path;
+			cur_interval->lock_type = LOCK_TYPE_INTERVAL;
+			int res = zk_acquire_lock(cur_interval);
 			if (res != ZOK) {
 				goto fail;
 			}
-			if (rf->lock_acquired) {
+			if (cur_interval->lock_acquired) {
 				acquiredCount++;
 			}
 		}
@@ -288,7 +290,9 @@ fail:
 		rf = r->files + i;
 		it_node_t* cur_interval;
 		it_foreach(&rf->it, cur_interval){
-			zk_release_lock(cur_interval, LOCK_TYPE_INTERVAL);
+			cur_interval->file_path = rf->file_path;
+			cur_interval->lock_type = LOCK_TYPE_INTERVAL;
+			zk_release_lock(cur_interval);
 		}
 	}
 	TXN_ROLLBACK;
@@ -492,7 +496,9 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	// ZK UNLOCK
 	int releaseCount = 0;
 	it_foreach(&rf->it, p_itn) {
-		int ret = zk_release_lock(p_itn, LOCK_TYPE_INTERVAL);
+		p_itn->file_path = rf->file_path;
+		p_itn->lock_type = LOCK_TYPE_INTERVAL;
+		int ret = zk_release_lock(p_itn);
 		if (ret == ZOK) {
 			releaseCount++;
 		}
@@ -524,7 +530,9 @@ pass:
 	// release failed earlier
 	if (releaseCount != rf->num_it) {
 		it_foreach(&rf->it, p_itn) {
-			zk_release_lock(p_itn, LOCK_TYPE_INTERVAL);
+			p_itn->file_path = rf->file_path;
+			p_itn->lock_type = LOCK_TYPE_INTERVAL;
+			zk_release_lock(p_itn);
 		}
 	}
 	if (ou)

@@ -13,6 +13,7 @@
 #include "sql.h"
 #include "common.h"
 #include "interval_tree.h"
+#include "zkclient.h"
 
 const char* DEFAULT_START_ORACLE = "[START ORACLE]";
 const char* DEFAULT_END_ORACLE = "[END ORACLE]";
@@ -106,7 +107,21 @@ int pull_swap_file(struct range_file* rf){
 	oracle_len[0] = strlen(start_oracle);
 	oracle_len[1] = strlen(end_oracle);
 	
-	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
+	// master read lock
+	it_node_t zkcontext;
+	zkcontext.lock_type = LOCK_TYPE_MASTER_READ;
+	zkcontext.file_path = rf->file_path;
+	pthread_mutex_init(&(zkcontext.pmutex), NULL);
+	int ret = zk_acquire_lock(&zkcontext);
+	if (ret != ZOK) {
+		goto fail;
+	}
+	if (!zkcontext.lock_acquired) {
+		// watcher in zkclient will unlock once lock gets acquired
+		pthread_mutex_lock(&(zkcontext.pmutex));
+	}
+
+	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		goto fail;
@@ -143,7 +158,21 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 	size_t oracle_len[2] = {strlen(start_oracle), strlen(end_oracle)};
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
-	// acquire write lock
+	
+	// master write lock
+	it_node_t zkcontext;
+	zkcontext.lock_type = LOCK_TYPE_MASTER_WRITE;
+	zkcontext.file_path = rf->file_path;
+	pthread_mutex_init(&(zkcontext.pmutex), NULL);
+	int ret = zk_acquire_lock(&zkcontext);
+	if (ret != ZOK) {
+		goto pass;
+	}
+	if (!zkcontext.lock_acquired) {
+		// watcher in zkclient will unlock once lock gets acquired
+		pthread_mutex_lock(&(zkcontext.pmutex));
+	}
+
 	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);

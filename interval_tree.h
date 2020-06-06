@@ -15,6 +15,12 @@ typedef struct it_node{
 	size_t base;
 	size_t bound;
 	int sequence;
+	// for zookeeper
+	char* file_path;
+	char* lock_name;
+    int lock_acquired;
+	int lock_type;	// different types defined in zkclient.h
+	pthread_mutex_t pmutex;	// only used for blocking with master lock
 } it_node_t;
 
 typedef struct it_array {

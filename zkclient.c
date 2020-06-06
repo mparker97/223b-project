@@ -40,7 +40,7 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
     }
     else if (type == ZOO_DELETED_EVENT) {
         // only master locks are watched
-        range_file_t* zkcontext = (range_file_t*) context;
+        it_node_t* zkcontext = (it_node_t*) context;
         struct timespec ts;
         ts.tv_sec = 0;
         ts.tv_nsec = (.5)*1000000;
@@ -62,10 +62,10 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
     }
 }
 
-int zk_release_lock(range_file_t *context, int lock_type) {
+int zk_release_lock(it_node_t *context) {
     if (context->lock_name != NULL && context->file_path != NULL) {
         int len = strlen(context->file_path) + strlen(context->lock_name);
-        if (lock_type == LOCK_TYPE_INTERVAL) {
+        if (context->lock_type == LOCK_TYPE_INTERVAL) {
             // 10 for "/interval/" + 1 for '\0'
             len += 11;
         }
@@ -75,7 +75,7 @@ int zk_release_lock(range_file_t *context, int lock_type) {
         }
         
         char buf[len];
-        if (lock_type == LOCK_TYPE_INTERVAL) {
+        if (context->lock_type == LOCK_TYPE_INTERVAL) {
             sprintf(buf, "%s/interval/%s", context->file_path, context->lock_name);
         }
         else {
@@ -107,7 +107,7 @@ int zk_release_lock(range_file_t *context, int lock_type) {
 	return ZSYSTEMERROR;
 }
 
-int zk_acquire_lock(range_file_t *context, int lock_type) {
+int zk_acquire_lock(it_node_t *context) {
     struct Stat stat;
     int exists = zoo_exists(zh, context->file_path, 0, &stat);
     int count = 0;
@@ -131,7 +131,7 @@ int zk_acquire_lock(range_file_t *context, int lock_type) {
     }
 
     int lock_subfolder_len = strlen(context->file_path);
-    if (lock_type == LOCK_TYPE_INTERVAL) {
+    if (context->lock_type == LOCK_TYPE_INTERVAL) {
         // 9 for "/interval" and 1 for '\0'
         lock_subfolder_len += 10;
     }
@@ -160,13 +160,13 @@ int zk_acquire_lock(range_file_t *context, int lock_type) {
     int check_retry = ZCONNECTIONLOSS;
     count = 0;
     while (check_retry != ZOK && count < 3) {
-        if (lock_type == LOCK_TYPE_INTERVAL) {
+        if (context->lock_type == LOCK_TYPE_INTERVAL) {
             check_retry = _zk_interval_lock_operation(context, &ts);
         }
-        else if (lock_type == LOCK_TYPE_MASTER_READ) {
+        else if (context->lock_type == LOCK_TYPE_MASTER_READ) {
             check_retry = _zk_master_read_lock_operation(context, &ts);
         }
-        else if (lock_type == LOCK_TYPE_MASTER_WRITE) {
+        else if (context->lock_type == LOCK_TYPE_MASTER_WRITE) {
             check_retry = _zk_master_write_lock_operation(context, &ts);
         }
 
@@ -179,7 +179,7 @@ int zk_acquire_lock(range_file_t *context, int lock_type) {
     return check_retry;
 }
 
-static int _zk_master_read_lock_operation(range_file_t *context, struct timespec *ts) {
+static int _zk_master_read_lock_operation(it_node_t *context, struct timespec *ts) {
     // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
     // construct full lock file path: .../foo/master/read-<SEQUENCE>
     // 14 = 13 for "/master/read-" + 1 for '\0'
@@ -200,7 +200,7 @@ static int _zk_master_read_lock_operation(range_file_t *context, struct timespec
     return _zk_determine_master_read_lock_eligibility(context, ts);
 }
 
-static int _zk_master_write_operation(range_file_t *context, struct timespec *ts) {
+static int _zk_master_write_lock_operation(it_node_t *context, struct timespec *ts) {
     // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
     // construct full lock file path: .../foo/master/read-<SEQUENCE>
     // 15 = 14 for "/master/write-" + 1 for '\0'
@@ -221,7 +221,7 @@ static int _zk_master_write_operation(range_file_t *context, struct timespec *ts
     return _zk_determine_master_write_lock_eligibility(context, ts);
 }
 
-static int _zk_interval_lock_operation(range_file_t *context, struct timespec *ts) {
+static int _zk_interval_lock_operation(it_node_t *context, struct timespec *ts) {
     // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
     // construct full lock file path: .../foo/interval/<OFFSET_ID>-<SEQUENCE>
     // 23 = 10 for "/interval/" + 1 for '\0' + 1 for '-' + 11 for offset_id number 
@@ -242,7 +242,7 @@ static int _zk_interval_lock_operation(range_file_t *context, struct timespec *t
     return _zk_determine_interval_lock_eligibility(context, ts);
 }
 
-static int _zk_determine_master_read_lock_eligibility(range_file_t *context, struct timespec *ts) {
+static int _zk_determine_master_read_lock_eligibility(it_node_t *context, struct timespec *ts) {
     // 2. GET CHILDREN
     // get all existing master locks .../foo/master/<read/write>-<sequence>
     struct String_vector master_locks;
@@ -282,7 +282,8 @@ static int _zk_determine_master_read_lock_eligibility(range_file_t *context, str
         context->lock_acquired = 1;
         return ZOK;
     }
-    
+    context->lock_acquired = 0;
+
     // watch write node with largest seq number smallest than currentSequence   
     struct Stat stat;
     ret = zoo_wexists(zh, nextSmallestLock, watcher, (void*) context, &stat);
@@ -298,7 +299,7 @@ static int _zk_determine_master_read_lock_eligibility(range_file_t *context, str
     return ret;
 }
 
-static int _zk_determine_master_write_lock_eligibility(range_file_t *context, struct timespec *ts) {
+static int _zk_determine_master_write_lock_eligibility(it_node_t *context, struct timespec *ts) {
     // 2. GET CHILDREN
     // get all existing master locks .../foo/master/<read/write>-<sequence>
     struct String_vector master_locks;
@@ -336,6 +337,7 @@ static int _zk_determine_master_write_lock_eligibility(range_file_t *context, st
         context->lock_acquired = 1;
         return ZOK;
     }
+    context->lock_acquired = 0;
     
     // watch node with largest seq number smallest than currentSequence
     struct Stat stat;
@@ -352,7 +354,7 @@ static int _zk_determine_master_write_lock_eligibility(range_file_t *context, st
     return ret;
 }
 
-static int _zk_determine_interval_lock_eligibility(range_file_t *context, struct timespec *ts) {
+static int _zk_determine_interval_lock_eligibility(it_node_t *context, struct timespec *ts) {
     // 2. GET CHILDREN, SHIFT INTERVALS AS NEEDED AND DISCARD THOSE NOT IN INTERVAL
     it_array_t relevant_intervals;
     int ret = _get_sorted_shifted_relevant_intervals(context, &relevant_intervals);
@@ -412,7 +414,7 @@ static int _zk_determine_interval_lock_eligibility(range_file_t *context, struct
     return ret;
 }
 
-static int _get_sorted_shifted_relevant_intervals(range_file_t* context, it_array_t* ret_array) {
+static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t* ret_array) {
     ret_array->array = NULL;
     ret_array->len = 0;
 
