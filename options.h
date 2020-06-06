@@ -1,6 +1,6 @@
 #ifndef OPTIONS_H
 #define OPTIONS_H
-#include <fnctl.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include "file.h"

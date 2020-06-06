@@ -21,79 +21,8 @@ extern char swp_dir[PATH_MAX];
 struct range global_r;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
-static char** p_exe_path;
+char** p_exe_path;
 static char mode = 0;
-
-int exec_editor(char* f_path){
-	char* tmp;
-	int f = fork();
-	if (f < 0){
-		fprintf(stderr, "Fork failed\n");
-		return -1;
-	}
-	if (f == 0){
-		// squeeze in file between exe and args
-		p_exe_path[-1] = p_exe_path[0];
-		p_exe_path[0] = f_path;
-		execvp(p_exe_path[-1], &p_exe_path[-1]);
-		err_out(true, "Failed to run executable %s\n", tmp);
-	}
-	else{
-		printf("Writing file %s from pid %d\n", f_path, f);
-		waitpid(f, NULL, 0);
-	}
-	return f;
-}
-
-struct open_files_thread{
-	pthread_t thd;
-	struct range_file* rf;
-};
-
-void* thd_open_files(void* arg){
-	char path[PATH_MAX];
-	struct open_files_thread* oft = (struct open_files_thread*)arg;
-	int i, swp_fd;
-	swp_fd = pull_swap_file(oft->rf);
-	if (swp_fd < 0){
-		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
-		goto fail;
-	}
-	get_path_by_fd(path, swp_fd);
-	if (!path){
-		fprintf(stderr, "Failed to resolve swap file path for %s\n", oft->rf->file_path);
-		goto fail;
-	}
-	do{
-		// TODO: can I keep the swap file desc open while I do exec?
-		if (exec_editor(path) < 0){
-			goto fail;
-		}
-		i = push_swap_file(swp_fd, oft->rf);
-		if (i == -1){
-			goto fail;
-		}
-	} while (i < 0);
-	return (void*)1;
-fail:
-	return NULL;
-}
-
-void open_files(struct range* r){
-	int i, j;
-	struct open_files_thread* thds = malloc(r->num_files * sizeof(struct open_files_thread));
-	void* retval;
-	err_out(!thds, "Malloc open files threads failed\n");
-	for (i = 0; i < r->num_files; i++){
-		thds[i].rf = &r->files[i];
-		pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i]);
-	}
-	for (i = 0; i < r->num_files; i++){
-		pthread_join(thds[i].thd, &retval);
-	}
-	if (thds)
-		free(thds);
-}
 
 void get_range(size_t* base, size_t* bound, char* str){
 	*base = atol(str);
@@ -157,7 +86,6 @@ void opts(int argc, char* argv[]){
 				optind++;
 			}
 			err_out(query_select_named_range(&global_r) < 0, "");
-			open_files(&global_r);
 			break;
 		case 'n': // i[n]sert
 			err_out(range_init(&global_r, optarg) < 0, "");

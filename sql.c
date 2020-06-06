@@ -15,7 +15,7 @@
 			goto fail; \
 		} \
 	} while (0)
-	
+
 #define TXN_START fail_check(!mysql_real_query(&mysql, "START TRANSACTION", 17))
 #define TXN_COMMIT fail_check(!mysql_real_query(&mysql, "COMMIT", 6))
 #define TXN_ROLLBACK mysql_real_query(&mysql, "ROLLBACK", 8)
@@ -33,13 +33,13 @@
 	} while (0)
 
 static const char* QUERY_SELECT_NAMED_RANGE = "\
-	SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Bound, Offset.Conflict \
+	SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Bound, Offset.Conflict FOR SHARE \
 	FROM \
 		((Range INNER JOIN RangeFileJunction ON Range.RangeId = RangeFileJunction.RangeId) \
 		INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
 		INNER JOIN Offset ON File.FileId = Offset.FileId \
-	WHERE Range.Name = \"?\" AND Range.Init = TRUE\
-	ORDER BY File.FilePath, Offset.Base"; // name
+	WHERE Range.RangeName = \"?\" AND Range.Init = TRUE\
+	ORDER BY File.FilePath, Offset.Base"; // Range.RangeName
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
 	"SELECT FileId FROM File WHERE FilePath = \"?\")", // file_path
@@ -49,7 +49,7 @@ static const char* QUERY_SELECT_FILE_INTERVALS[] = {
 };
 
 static const char* QUERY_INSERT_NAMED_RANGE[] = {
-	"INSERT INTO Range (Name, init) VALUES (\"?\", FALSE)", // insert new range name
+	"INSERT INTO Range (RangeName, init) VALUES (\"?\", FALSE)", // insert new range name
 	// mysql_insert_id to get rangeId
 	// for each file {
 		"INSERT INTO File (FilePath) VALUES (\"?\")", // insert new file path
@@ -64,7 +64,6 @@ static const char* QUERY_INSERT_NAMED_RANGE[] = {
 			"INSERT INTO Offset (FileId, Base, Bound) VALUES (?, ?, ?)", // fileId, base, bound, mode
 		// }
 	// }
-	// TODO: delay init until other base/bound is captured from files?
 	"UPDATE Range SET Range.Init = TRUE WHERE Range.RangeId = ?" // rangeId
 };
 
@@ -176,9 +175,9 @@ int pps(MYSQL_STMT** ret, const char* query, MYSQL_BIND* in, MYSQL_BIND* out){ /
 	fail_check(!in || mysql_stmt_bind_param(stmt, in));
 	fail_check(!out || mysql_stmt_bind_result(stmt, out));
 	*ret = stmt;
-	return 0;
+	return 1;
 fail:
-	return -1;
+	return 0;
 }
 
 void stmt_errors(MYSQL_STMT** stmt, int n){
@@ -199,7 +198,7 @@ void close_stmts(MYSQL_STMT** stmt, int n){
 			mysql_stmt_close(stmt[i]);
 }
 
-int query_select_named_range(struct range* r){	// range already has r->name
+int query_select_named_range(struct range* r){ // range already has r->name
 	#define NUM_STMT 1
 	#define NUM_BIND 7
 	int ret = 0, succ;
@@ -218,8 +217,6 @@ int query_select_named_range(struct range* r){	// range already has r->name
 	len = strlen(r->name);
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, &null, true, &error); // File.FileId
-	bind[0].is_null = &null;
-	bind[0].error = &error;
 	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, PATH_MAX, &len, &null, true, &error); // File.FilePath
 	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, &null, true, &error); // Offset.OffsetId
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
@@ -227,33 +224,42 @@ int query_select_named_range(struct range* r){	// range already has r->name
 	mysql_bind_init(bind[5], MYSQL_TYPE_TINY, &conflict, sizeof(char), NULL, &null, true, &error); // Offset.Conflict
 	mysql_bind_init(bind[6], MYSQL_TYPE_STRING, r->name, len, &len, (bool*)0, true, &error); // Range.Name
 	
-	if (!pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0])){
-		if (!mysql_stmt_execute(stmt[0])){
-			if (!mysql_stmt_store_result(stmt[0])){
-				for (;;){
-					succ = mysql_stmt_fetch(stmt[0]);
-					fail_check(succ == 1);
-					if (succ == MYSQL_NO_DATA){
-						break;
-					}
-					if (!strncmp(old_buf, buf, len)){ // different file; add it
-						memcpy(old_buf, buf, len);
-						old_buf[len + 1] = 0;
-						rf = range_add_file(r, old_buf, fileId);
-						fail_check(rf);
-					}
-					if (conflict){
-						printf("Warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
-					}
-					if (!range_file_add_it(rf, base, bound, offsetId)){
-						goto fail;
-					}
-				}
-			}
+	TXN_START;
+	
+	fail_check(pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0]));
+	fail_check(!mysql_stmt_execute(stmt[0]));
+	fail_check(!mysql_stmt_store_result(stmt[0]));
+	for (;;){
+		succ = mysql_stmt_fetch(stmt[0]);
+		fail_check(succ == 1);
+		if (succ == MYSQL_NO_DATA){
+			break;
 		}
+		if (!strncmp(old_buf, buf, len)){ // different file; add it
+			memcpy(old_buf, buf, len);
+			old_buf[len + 1] = 0;
+			rf = range_add_file(r, old_buf, fileId);
+			fail_check(rf);
+		}
+		if (conflict){
+			printf("Warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
+		}
+		range_file_add_it(rf, base, bound, offsetId); // no failure; just don't include it
 	}
+	
+	/*TODO: ZK LOCK
+	if (successful){
+		open_files(r);
+	}
+	else {
+		fprintf(stderr, "Range %s is already in use\n", r->name);
+		goto fail;
+	}*/
+	
+	TXN_COMMIT;
 	goto pass;
 fail:
+	TXN_ROLLBACK;
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
 pass:
@@ -286,46 +292,43 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_
 	mysql_bind_init(bind[5], MYSQL_TYPE_TINY, &conflict, sizeof(char), NULL, &null, true, &error); // Offset.Conflict
 	
 	fail_check(
-		pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[1], &bind[0]) ||
+		pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[1], &bind[0]) &&
 		pps(&stmt[1], QUERY_SELECT_NAMED_RANGE, &bind[0], &bind[2])
 	);
 	rf->file_path = NULL;
 	
 	TXN_START;
 	
-	if (!mysql_stmt_execute(stmt[0])){
-		succ = mysql_stmt_fetch(stmt[0]);
-		fail_check(succ != 1 && succ != MYSQL_NO_DATA);
-		fail_check(rf->file_path = strdup(file_path));
-		rf->id = fileId;
-		null = false;
-		if (!mysql_stmt_execute(stmt[1])){
-			if (!mysql_stmt_store_result(stmt[1])){
-				for (;;){
-					succ = mysql_stmt_fetch(stmt[1]);
-					fail_check(succ == 1);
-					if (succ == MYSQL_NO_DATA){
-						break;
-					}
-					if (conflict){
-						printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
-					}
-					it_node_t* cur_interval = (it_node_t*) malloc(sizeof(it_node_t));
-					fail_check(cur_interval == NULL);
-					cur_interval->ls = L_LIST_NULL;
-					cur_interval->base = base;
-					cur_interval->bound = bound;
-					cur_interval->id = offsetId;
+	fail_check(!mysql_stmt_execute(stmt[0]));
+	succ = mysql_stmt_fetch(stmt[0]);
+	fail_check(succ != 1 && succ != MYSQL_NO_DATA);
+	fail_check(rf->file_path = strdup(file_path));
+	rf->id = fileId;
+	null = false;
+	fail_check(!mysql_stmt_execute(stmt[1]));
+	fail_check(!mysql_stmt_store_result(stmt[1]));
+	for (;;){
+		succ = mysql_stmt_fetch(stmt[1]);
+		fail_check(succ == 1);
+		if (succ == MYSQL_NO_DATA){
+			break;
+		}
+		if (conflict){
+			printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
+		}
+		it_node_t* cur_interval = (it_node_t*) malloc(sizeof(it_node_t));
+		fail_check(cur_interval == NULL);
+		cur_interval->ls = L_LIST_NULL;
+		cur_interval->base = base;
+		cur_interval->bound = bound;
+		cur_interval->id = offsetId;
 
-					if (it_intersect(new_interval, cur_interval)) {
-						l_list_add_after(cur_ls, &(cur_interval->ls));
-						cur_ls = &(cur_interval->ls);
-					}
-					else {
-						free(cur_interval);
-					}
-				}
-			}
+		if (it_intersect(new_interval, cur_interval)) {
+			l_list_add_after(cur_ls, &(cur_interval->ls));
+			cur_ls = &(cur_interval->ls);
+		}
+		else {
+			free(cur_interval);
 		}
 	}
 	TXN_COMMIT;
@@ -365,11 +368,11 @@ int query_insert_named_range(struct range* r){
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
-		pps(&stmt[0], QUERY_INSERT_NAMED_RANGE[0], &bind[0], NULL) ||
-		pps(&stmt[1], QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL) ||
-		pps(&stmt[2], QUERY_INSERT_NAMED_RANGE[2], &bind[2], &bind[3]) ||
-		pps(&stmt[3], QUERY_INSERT_NAMED_RANGE[3], &bind[3], NULL) ||
-		pps(&stmt[4], QUERY_INSERT_NAMED_RANGE[4], &bind[4], NULL) ||
+		pps(&stmt[0], QUERY_INSERT_NAMED_RANGE[0], &bind[0], NULL) &&
+		pps(&stmt[1], QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL) &&
+		pps(&stmt[2], QUERY_INSERT_NAMED_RANGE[2], &bind[2], &bind[3]) &&
+		pps(&stmt[3], QUERY_INSERT_NAMED_RANGE[3], &bind[3], NULL) &&
+		pps(&stmt[4], QUERY_INSERT_NAMED_RANGE[4], &bind[4], NULL) &&
 		pps(&stmt[5], QUERY_INSERT_NAMED_RANGE[5], &bind[3], NULL)
 	);
 	
@@ -431,7 +434,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	struct it_node* p_itn, itn;
 	struct offset_update* ou;
 	unsigned long db_base, db_bound;
-	int succ;
+	int succ, zk_released = 0;
 	char null, error;
 	
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
@@ -443,15 +446,18 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
-		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[0], NULL) ||
-		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], NULL) ||
-		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, &bind[3]) ||
+		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[0], NULL) &&
+		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], NULL) &&
+		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, &bind[3]) &&
 		pps(&stmt[3], QUERY_RESIZE_FILE[3], &bind[0], NULL)
 	);
 	ou = malloc(rf->num_it * sizeof(struct offset_update));
 	fail_check(ou);
 	
 	TXN_START;
+	
+	// TODO: ZK UNLOCK
+	zk_release = 1;
 	
 	fail_check(!mysql_stmt_execute(stmt[0]));
 	it_foreach(&rf->it, p_itn){
@@ -476,6 +482,8 @@ fail:
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
 pass:
+	if (!zk_release)
+		// TODO: ZK UNLOCK
 	if (ou)
 		free(ou);
 	close_stmts(stmt, NUM_STMT);
