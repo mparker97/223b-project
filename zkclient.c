@@ -47,18 +47,20 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
 
         // helper function will set watch if not owner
         // TODO change for master lock_zk_determine_interval_lock_eligibility(zkcontext, &ts);
+
+        // successfully acquired lock
         if (zkcontext->lock_acquired) {
-            // successfully acquired lock
             fprintf(stdout, "successfully acquired lock on delete");
+            // matching unlock for lock on client
             pthread_mutex_unlock(&(zkcontext->pmutex));
         } 
     }
 }
 
-int zk_release_lock(range_file_t *context, int is_interval_lock) {
+int zk_release_lock(range_file_t *context, int lock_type) {
     if (context->lock_name != NULL && context->file_path != NULL) {
         int len = strlen(context->file_path) + strlen(context->lock_name);
-        if (is_interval_lock) {
+        if (lock_type == LOCK_TYPE_INTERVAL) {
             // 10 for "/interval/" + 1 for '\0'
             len += 11;
         }
@@ -68,7 +70,7 @@ int zk_release_lock(range_file_t *context, int is_interval_lock) {
         }
         
         char buf[len];
-        if (is_interval_lock) {
+        if (lock_type == LOCK_TYPE_INTERVAL) {
             sprintf(buf, "%s/interval/%s", context->file_path, context->lock_name);
         }
         else {
@@ -100,10 +102,9 @@ int zk_release_lock(range_file_t *context, int is_interval_lock) {
 	return ZSYSTEMERROR;
 }
 
-int zk_acquire_interval_lock(range_file_t *context) {
-    char *path = context->file_path;
+int zk_acquire_lock(range_file_t *context, int lock_type) {
     struct Stat stat;
-    int exists = zoo_exists(zh, path, 0, &stat);
+    int exists = zoo_exists(zh, context->file_path, 0, &stat);
     int count = 0;
     struct timespec ts;
     ts.tv_sec = 0;
@@ -115,26 +116,35 @@ int zk_acquire_interval_lock(range_file_t *context) {
         count++;
         // retry the operation
         if (exists == ZCONNECTIONLOSS) 
-            exists = zoo_exists(zh, path, 0, &stat);
+            exists = zoo_exists(zh, context->file_path, 0, &stat);
         else if (exists == ZNONODE) 
-            exists = zoo_create(zh, path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
+            exists = zoo_create(zh, context->file_path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
         nanosleep(&ts, 0);        
     }
     if (exists == ZCONNECTIONLOSS) {
         return exists;
     }
 
+    int lock_subfolder_len = strlen(context->file_path);
+    if (lock_type == LOCK_TYPE_INTERVAL) {
+        // 9 for "/interval" and 1 for '\0'
+        lock_subfolder_len += 10;
+    }
+    else {
+        // 7 for "/master" and 1 for '\0'
+        lock_subfolder_len += 8;
+    }
     // create subnode .../foo/interval if it doesn’t exist before
-    char interval_path[strlen(path) + 10];
-    sprintf(interval_path, "%s/interval", path);
-    exists = zoo_exists(zh, interval_path, 0, &stat);
+    char subfolder_path[lock_subfolder_len];
+    sprintf(subfolder_path, "%s/interval", context->file_path);
+    exists = zoo_exists(zh, subfolder_path, 0, &stat);
     count = 0;
     while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
         count++;
         if (exists == ZCONNECTIONLOSS) 
-            exists = zoo_exists(zh, interval_path, 0, &stat);
+            exists = zoo_exists(zh, subfolder_path, 0, &stat);
         else if (exists == ZNONODE) 
-            exists = zoo_create(zh, interval_path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
+            exists = zoo_create(zh, subfolder_path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
         nanosleep(&ts, 0);
     }
     if (exists == ZCONNECTIONLOSS) {
@@ -145,7 +155,16 @@ int zk_acquire_interval_lock(range_file_t *context) {
     int check_retry = ZCONNECTIONLOSS;
     count = 0;
     while (check_retry != ZOK && count < 3) {
-        check_retry = _zk_interval_lock_operation(context, &ts);
+        if (lock_type == LOCK_TYPE_INTERVAL) {
+            check_retry = _zk_interval_lock_operation(context, &ts);
+        }
+        else if (lock_type == LOCK_TYPE_MASTER_READ) {
+            check_retry = _zk_master_read_lock_operation(context, &ts);
+        }
+        else if (lock_type == LOCK_TYPE_MASTER_WRITE) {
+            check_retry = _zk_master_write_lock_operation(context, &ts);
+        }
+
         if (check_retry != ZOK) {
             nanosleep(&ts, 0);
             count++;

@@ -143,7 +143,8 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 	size_t oracle_len[2] = {strlen(start_oracle), strlen(end_oracle)};
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
-	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
+	// acquire write lock
+	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		ret = -1;
