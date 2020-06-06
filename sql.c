@@ -285,7 +285,7 @@ int query_select_named_range(struct range* r){ // range already has r->name
 fail:
 	// delete all possibly acquired interval locks
 	for (int i = 0; i < r->num_files; i++){
-		zk_release_interval_lock(r->files + i);
+		zk_release_lock(r->files + i, 1);
 	}
 	TXN_ROLLBACK;
 	ret = -1;
@@ -488,7 +488,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	// ZK UNLOCK
 	int releaseCount = 0;
 	it_foreach(&rf->it, p_itn) {
-		int ret = zk_release_interval_lock(rf);
+		int ret = zk_release_lock(rf, 1);
 		if (ret == ZOK) {
 			releaseCount++;
 		}
@@ -519,7 +519,7 @@ fail:
 pass:
 	// release failed earlier
 	if (releaseCount != rf->num_it) {
-		zk_release_interval_lock(rf);
+		zk_release_lock(rf, 1);
 	}
 	if (ou)
 		free(ou);

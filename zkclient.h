@@ -12,7 +12,7 @@ typedef void (* zk_lock_callback) (void* cb_data);
 
 // FUNCTION DECLARATIONS
 void watcher(zhandle_t *zzh, int type, int state, const char *path, void* context);
-int zk_release_interval_lock(range_file_t *context);
+int zk_release_lock(range_file_t *context, int is_interval_lock);
 int zk_acquire_interval_lock(range_file_t *context);
 static int _zk_interval_lock_operation(range_file_t *context, struct timespec *ts);
 static int _zk_determine_interval_lock_eligibility(range_file_t *context, struct timespec *ts);

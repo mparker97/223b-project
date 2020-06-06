@@ -16,6 +16,7 @@ typedef struct range_file {
 	size_t base;
     size_t bound;
     int lock_acquired;
+	pthread_mutex_t pmutex;	// only used for blocking with master lock
 } range_file_t;
 
 struct range{

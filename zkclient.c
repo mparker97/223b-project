@@ -39,6 +39,7 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
         }
     }
     else if (type == ZOO_DELETED_EVENT) {
+        // only master locks are watched
         range_file_t* zkcontext = (range_file_t*) context;
         struct timespec ts;
         ts.tv_sec = 0;
@@ -53,11 +54,25 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
     }
 }
 
-int zk_release_interval_lock(range_file_t *context) {
+int zk_release_lock(range_file_t *context, int is_interval_lock) {
     if (context->lock_name != NULL && context->file_path != NULL) {
-        int len = strlen(context->file_path) + strlen(context->lock_name) + 2;
+        int len = strlen(context->file_path) + strlen(context->lock_name);
+        if (is_interval_lock) {
+            // 10 for "/interval/" + 1 for '\0'
+            len += 11;
+        }
+        else {
+            // 8 for "/master/" + 1 for '\0'
+            len += 9;
+        }
+        
         char buf[len];
-        sprintf(buf, "%s/%s", context->file_path, context->lock_name);
+        if (is_interval_lock) {
+            sprintf(buf, "%s/interval/%s", context->file_path, context->lock_name);
+        }
+        else {
+            sprintf(buf, "%s/master/%s", context->file_path, context->lock_name);
+        }
 
         int ret = 0;
         int count = 0;
@@ -207,10 +222,10 @@ static int _zk_determine_interval_lock_eligibility(range_file_t *context, struct
             (*found_interval)->id, (*found_interval)->sequence);
     
     struct Stat stat;
-    ret = zoo_wexists(zh, buf, watcher, (void*) context, &stat);
+    ret = zoo_exists(zh, buf, 0, &stat);
     int retry_count = 0;
     while (ret != ZOK && retry_count < 3) {
-        ret = zoo_wexists(zh, buf, watcher, (void*) context, &stat);
+        ret = zoo_exists(zh, buf, 0, &stat);
         if (ret != ZOK) {
             nanosleep(ts, 0);
             retry_count++;
