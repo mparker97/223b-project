@@ -286,7 +286,7 @@ void open_files(struct range* r){
 int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd, struct oracles* o){
 	// TODO: add back in oracle lengths?
 	int ret = 0, i, tmp_fd;
-	off_t pos = 0;
+	off_t pos = 0, o_pos = o->oracle_len[0];
 	struct stat st;
 	tmp_fd = open(swp_dir, O_RDWR | O_TMPFILE | O_EXCL, S_IRWXU);
 	if (tmp_fd < 0){
@@ -298,8 +298,9 @@ int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backi
 	for (i = 0; i < len; i++){
 		sendfile(tmp_fd, backing_fd, NULL, ou[i].backing_start - pos);
 		pos = lseek(backing_fd, ou[i].backing_end, SEEK_SET);
-		lseek(swp_fd, ou[i].swp_start, SEEK_SET);
+		lseek(swp_fd, ou[i].swp_start + o_pos, SEEK_SET);
 		sendfile(tmp_fd, swp_fd, NULL, ou[i].swp_end - ou[i].swp_start);
+		o_pos += o->oracle_len[0] + o->oracle_len[1]; // this and next iteration
 	}
 	sendfile(tmp_fd, backing_fd, NULL, st.st_size - pos);
 	fstat(tmp_fd, &st);
