@@ -309,6 +309,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	char conflict;
 	char null, error;
 	struct l_list *cur_ls = &rf->it;
+	it_node_t new_interval;	// TODO fill with base and bound of cur_id
 	
 	len = strlen(file_path);
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
@@ -351,7 +352,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 		cur_interval->bound = bound;
 		cur_interval->id = offsetId;
 
-		if (it_intersect(new_interval, cur_interval)) {
+		if (it_intersect(&new_interval, cur_interval)) {
 			l_list_add_after(cur_ls, &(cur_interval->ls));
 			cur_ls = &(cur_interval->ls);
 		}
