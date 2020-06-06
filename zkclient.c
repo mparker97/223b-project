@@ -14,7 +14,7 @@ static clientid_t myid;
  */
 void watcher(zhandle_t *zzh, int type, int state, const char *path,
              void* context) {
-    fprintf(stderr, "Watcher %s state = %s", type2String(type), state2String(state));
+    fprintf(stderr, "Watcher %d state = %d", type, state);
     if (path && strlen(path) > 0) {
       fprintf(stderr, " for path %s", path);
     }
@@ -68,7 +68,7 @@ int zk_release_interval_lock(zk_lock_context_t *context) {
         while (ret == ZCONNECTIONLOSS && (count < 3)) {
             ret = zoo_delete(zh, buf, -1);
             if (ret == ZCONNECTIONLOSS) {
-                LOG_DEBUG(LOGCALLBACK(zh), ("connectionloss while deleting the node"));
+                fprintf(stderr, "connectionloss while deleting the node");
                 nanosleep(&ts, 0);
                 count++;
             }
@@ -76,11 +76,11 @@ int zk_release_interval_lock(zk_lock_context_t *context) {
         if (ret == ZOK || ret == ZNONODE) {
             return 0;
         }
-        LOG_WARN(LOGCALLBACK(zh), ("not able to connect to server - giving up"));
+        fprintf(stderr, "not able to connect to server - giving up");
         return ZCONNECTIONLOSS;
     }
 
-    LOG_WARN(LOGCALLBACK(zh), ("either parent path or lock name is NULL"));
+    fprintf(stderr, "either parent path or lock name is NULL");
 	return ZSYSTEMERROR;
 }
 
@@ -152,7 +152,7 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     int ret = zoo_create(zh, buf, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 
                          ZOO_EPHEMERAL | ZOO_SEQUENCE, full_path, len + 11);
     if (ret != ZOK) {
-        LOG_WARN(LOGCALLBACK(zh), "could not create zoo node %s", buf);
+       fprintf(stderr, "could not create zoo node %s", buf);
         return ret;
     }
     context->lock_name = getLockName(full_path);
