@@ -7,6 +7,7 @@
 #include "common.h"
 #include "interval_tree.h"
 #include "range.h"
+#include "zkclient.h"
 
 // do while (0) to allow semicolon after
 #define fail_check(c) \
@@ -253,18 +254,39 @@ int query_select_named_range(struct range* r){ // range already has r->name
 		range_file_add_it(rf, base, bound, offsetId); // no failure; just don't include it
 	}
 	
-	/*TODO: ZK LOCK
-	if (successful){
+	// iterate through all range files and attempt acquiring interval locks
+	int acquiredCount = 0;
+	int totalCount = 0;
+	for (int i = 0; i < r->num_files; i++){
+		rf = r->files + i;
+		totalCount += rf->num_it;
+		it_node_t* cur_interval;
+		it_foreach(&rf->it, cur_interval){
+			int res = zk_acquire_interval_lock(rf);
+			if (res != ZOK) {
+				goto fail;
+			}
+			if (rf->lock_acquired) {
+				acquiredCount++;
+			}
+		}
+	}
+	// successfully acquired all locks
+	if (acquiredCount == totalCount) {
 		open_files(r);
 	}
 	else {
 		fprintf(stderr, "Range %s is already in use\n", r->name);
 		goto fail;
-	}*/
+	}
 	
 	TXN_COMMIT;
 	goto pass;
 fail:
+	// delete all possibly acquired interval locks
+	for (int i = 0; i < r->num_files; i++){
+		zk_release_interval_lock(r->files + i);
+	}
 	TXN_ROLLBACK;
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
@@ -462,8 +484,14 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 	
 	TXN_START;
 	
-	// TODO: ZK UNLOCK
-	zk_release = 1;
+	// ZK UNLOCK
+	int releaseCount = 0;
+	it_foreach(&rf->it, p_itn) {
+		int ret = zk_release_interval_lock(rf);
+		if (ret == ZOK) {
+			releaseCount++;
+		}
+	}
 	
 	fail_check(!mysql_stmt_execute(stmt[0]));
 	it_foreach(&rf->it, p_itn){
@@ -488,8 +516,10 @@ fail:
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
 pass:
-	if (!zk_release)
-		// TODO: ZK UNLOCK
+	// release failed earlier
+	if (releaseCount != rf->num_it) {
+		zk_release_interval_lock(rf);
+	}
 	if (ou)
 		free(ou);
 	close_stmts(stmt, NUM_STMT);

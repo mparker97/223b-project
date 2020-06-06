@@ -13,7 +13,6 @@
 #include "common.h"
 #include "range.h"
 #include "help.h"
-#include "zkclient.h"
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
