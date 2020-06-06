@@ -39,25 +39,25 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
         }
     }
     else if (type == ZOO_DELETED_EVENT) {
-        zk_lock_context_t* zkcontext = (zk_lock_context_t*) context;
+        range_file_t* zkcontext = (range_file_t*) context;
         struct timespec ts;
         ts.tv_sec = 0;
         ts.tv_nsec = (.5)*1000000;
 
         // helper function will set watch if not owner
         _zk_determine_interval_lock_eligibility(zkcontext, &ts);
-        if (zkcontext->owner) {
+        if (zkcontext->lock_acquired) {
             // successfully acquired lock
-            zkcontext->cb_fn(zkcontext->cb_data);
+            fprintf(stdout, "successfully acquired lock on delete");
         } 
     }
 }
 
-int zk_release_interval_lock(zk_lock_context_t *context) {
-    if (context->lock_name != NULL && context->parent_path != NULL) {
-        int len = strlen(context->parent_path) + strlen(context->lock_name) + 2;
+int zk_release_interval_lock(range_file_t *context) {
+    if (context->lock_name != NULL && context->file_path != NULL) {
+        int len = strlen(context->file_path) + strlen(context->lock_name) + 2;
         char buf[len];
-        sprintf(buf, "%s/%s", context->parent_path, context->lock_name);
+        sprintf(buf, "%s/%s", context->file_path, context->lock_name);
 
         int ret = 0;
         int count = 0;
@@ -84,8 +84,8 @@ int zk_release_interval_lock(zk_lock_context_t *context) {
 	return ZSYSTEMERROR;
 }
 
-int zk_acquire_interval_lock(zk_lock_context_t *context) {
-    char *path = context->parent_path;
+int zk_acquire_interval_lock(range_file_t *context) {
+    char *path = context->file_path;
     struct Stat stat;
     int exists = zoo_exists(zh, path, 0, &stat);
     int count = 0;
@@ -139,13 +139,13 @@ int zk_acquire_interval_lock(zk_lock_context_t *context) {
     return check_retry;
 }
 
-static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timespec *ts) {
+static int _zk_interval_lock_operation(range_file_t *context, struct timespec *ts) {
     // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
     // construct full lock file path: .../foo/interval/<VERSION>-<START>-<LENGTH>-<SEQUENCE>
     // 47 = 10 for "/interval/" + 1 for '\0' + 1 for '-' + 11 for offset_id number 
-    int len = strlen(context->parent_path) + 23;
+    int len = strlen(context->file_path) + 23;
     char buf[len];
-    sprintf(buf, "%s/interval/%lu-", context->parent_path, context->offset_id);
+    sprintf(buf, "%s/interval/%lu-", context->file_path, context->id);
     // 11 for the <SEQUENCE>
     char full_path[len + 11];
 
@@ -160,7 +160,7 @@ static int _zk_interval_lock_operation(zk_lock_context_t *context, struct timesp
     return _zk_determine_interval_lock_eligibility(context, ts);
 }
 
-static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, struct timespec *ts) {
+static int _zk_determine_interval_lock_eligibility(range_file_t *context, struct timespec *ts) {
     // 2. GET CHILDREN, SHIFT INTERVALS AS NEEDED AND DISCARD THOSE NOT IN INTERVAL
     it_array_t relevant_intervals;
     int ret = _get_sorted_shifted_relevant_intervals(context, &relevant_intervals);
@@ -179,11 +179,11 @@ static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, s
     // there are no conflicting locks - client has lock
     int cur_sequence = getSequenceNumber(context->lock_name);
     if (relevant_intervals.array[0]->sequence == cur_sequence) {
-        context->owner = 1;
+        context->lock_acquired = 1;
         return ZOK;
     }
     
-    context->owner = 0;
+    context->lock_acquired = 0;
     it_node_t new_interval = {
         .sequence = cur_sequence,
     };
@@ -201,9 +201,9 @@ static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, s
     found_interval--;
 
     // 10 for "/interval/" + 1 for '\0' + 23 for "<offset_id>-<sequence>"
-    int len = strlen(context->parent_path) + 34;
+    int len = strlen(context->file_path) + 34;
     char buf[len];
-    sprintf(buf, "%s/interval/%lu-%010d", context->parent_path,
+    sprintf(buf, "%s/interval/%lu-%010d", context->file_path,
             (*found_interval)->id, (*found_interval)->sequence);
     
     struct Stat stat;
@@ -220,7 +220,7 @@ static int _zk_determine_interval_lock_eligibility(zk_lock_context_t *context, s
     return ret;
 }
 
-static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it_array_t* ret_array) {
+static int _get_sorted_shifted_relevant_intervals(range_file_t* context, it_array_t* ret_array) {
     ret_array->array = NULL;
     ret_array->len = 0;
 
@@ -228,8 +228,8 @@ static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it
     struct String_vector interval_locks;
     interval_locks.data = NULL;
     interval_locks.count = 0;
-    char interval_path[strlen(context->parent_path) + 10];
-    sprintf(interval_path, "%s/interval", context->parent_path);
+    char interval_path[strlen(context->file_path) + 10];
+    sprintf(interval_path, "%s/interval", context->file_path);
     int ret = zoo_get_children(zh, interval_path, 0, &interval_locks);
     if (ret != ZOK) {
         return ret;
@@ -252,7 +252,7 @@ static int _get_sorted_shifted_relevant_intervals(zk_lock_context_t* context, it
         .bound = context->bound,
     };
     struct range_file rf;
-    ret = query_select_file_intervals(&rf, context->parent_path, &new_interval);
+    ret = query_select_file_intervals(&rf, context->file_path, &new_interval);
     if (ret == -1) {
         return ret;
     }    

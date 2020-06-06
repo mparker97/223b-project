@@ -5,12 +5,18 @@ static inline void global_rs_deinit();
 #include "list.h"
 #include "interval_tree.h"
 
-struct range_file{
+typedef struct range_file {
 	struct l_list it;
 	char* file_path;
 	unsigned long id;
 	int num_it;
-};
+
+	// for zookeeper
+	char* lock_name;
+	size_t base;
+    size_t bound;
+    int lock_acquired;
+} range_file_t;
 
 struct range{
 	A_LIST_UNION(struct range_file, files, num_files, ls);

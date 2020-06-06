@@ -48,6 +48,12 @@ static const char* QUERY_SELECT_FILE_INTERVALS[] = {
 	WHERE Offset.FileId = ?" // file_id
 };
 
+// static const char* QUERY_SELECT_OFFSET_INFO[] = {
+// 	"SELECT Base, Bound \
+// 	FROM Offset \
+// 	WHERE Offset.OffsetId = ?" // offset_id
+// };
+
 static const char* QUERY_INSERT_NAMED_RANGE[] = {
 	"INSERT INTO Range (RangeName, init) VALUES (\"?\", FALSE)", // insert new range name
 	// mysql_insert_id to get rangeId
@@ -269,7 +275,7 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_t* new_interval){
+int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
 	#define NUM_STMT 2
 	#define NUM_BIND 6
 	int ret = 0, succ;
