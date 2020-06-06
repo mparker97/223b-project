@@ -53,13 +53,13 @@ CREATE TABLE RangeFileJunction (
 	RangeId bigint UNSIGNED NOT NULL,   #need to match type
   	FileId bigint UNSIGNED NOT NULL,
 	FOREIGN Key (RangeId) REFERENCES RangeName(RangeId) ON DELETE CASCADE,
-    FOREIGN Key (FileId) REFERENCES File(FileId) ON DELETE CASCADE
+    	FOREIGN Key (FileId) REFERENCES File(FileId) ON DELETE CASCADE
 );
 
 CREATE TABLE Offset (
 	OffsetId SERIAL,
-	Base LONG NOT NULL,
-	Bound LONG NOT NULL,
+	Base bigint UNSIGNED NOT NULL,
+	Bound bigint UNSIGNED NOT NULL,
 	Conflict BOOL DEFAULT FALSE,
 	FileId bigint UNSIGNED NOT NULL,
 	FOREIGN KEY (FileId) REFERENCES File(FileId) ON DELETE CASCADE
