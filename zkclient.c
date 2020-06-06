@@ -46,7 +46,12 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
         ts.tv_nsec = (.5)*1000000;
 
         // helper function will set watch if not owner
-        // TODO change for master lock_zk_determine_interval_lock_eligibility(zkcontext, &ts);
+        if (zkcontext->lock_type == LOCK_TYPE_MASTER_READ) {
+            _zk_determine_master_read_lock_eligibility(zkcontext, &ts);
+        }
+        else if (zkcontext->lock_type == LOCK_TYPE_MASTER_WRITE) {
+            _zk_determine_master_write_lock_eligibility(zkcontext, &ts);
+        }
 
         // successfully acquired lock
         if (zkcontext->lock_acquired) {
@@ -174,16 +179,58 @@ int zk_acquire_lock(range_file_t *context, int lock_type) {
     return check_retry;
 }
 
+static int _zk_master_read_lock_operation(range_file_t *context, struct timespec *ts) {
+    // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
+    // construct full lock file path: .../foo/master/read-<SEQUENCE>
+    // 14 = 13 for "/master/read-" + 1 for '\0'
+    int len = strlen(context->file_path) + 14;
+    char buf[len];
+    sprintf(buf, "%s/master/read-", context->file_path);
+
+    // 11 for the <SEQUENCE>
+    char full_path[len + 11];
+    int ret = zoo_create(zh, buf, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 
+                         ZOO_EPHEMERAL | ZOO_SEQUENCE, full_path, len + 11);
+    if (ret != ZOK) {
+       fprintf(stderr, "could not create master read node %s", buf);
+        return ret;
+    }
+    context->lock_name = getLockName(full_path);
+
+    return _zk_determine_master_read_lock_eligibility(context, ts);
+}
+
+static int _zk_master_write_operation(range_file_t *context, struct timespec *ts) {
+    // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
+    // construct full lock file path: .../foo/master/read-<SEQUENCE>
+    // 15 = 14 for "/master/write-" + 1 for '\0'
+    int len = strlen(context->file_path) + 15;
+    char buf[len];
+    sprintf(buf, "%s/master/write-", context->file_path);
+
+    // 11 for the <SEQUENCE>
+    char full_path[len + 11];
+    int ret = zoo_create(zh, buf, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 
+                         ZOO_EPHEMERAL | ZOO_SEQUENCE, full_path, len + 11);
+    if (ret != ZOK) {
+       fprintf(stderr, "could not create master write node %s", buf);
+        return ret;
+    }
+    context->lock_name = getLockName(full_path);
+
+    return _zk_determine_master_write_lock_eligibility(context, ts);
+}
+
 static int _zk_interval_lock_operation(range_file_t *context, struct timespec *ts) {
     // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
-    // construct full lock file path: .../foo/interval/<VERSION>-<START>-<LENGTH>-<SEQUENCE>
-    // 47 = 10 for "/interval/" + 1 for '\0' + 1 for '-' + 11 for offset_id number 
+    // construct full lock file path: .../foo/interval/<OFFSET_ID>-<SEQUENCE>
+    // 23 = 10 for "/interval/" + 1 for '\0' + 1 for '-' + 11 for offset_id number 
     int len = strlen(context->file_path) + 23;
     char buf[len];
     sprintf(buf, "%s/interval/%lu-", context->file_path, context->id);
+
     // 11 for the <SEQUENCE>
     char full_path[len + 11];
-
     int ret = zoo_create(zh, buf, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 
                          ZOO_EPHEMERAL | ZOO_SEQUENCE, full_path, len + 11);
     if (ret != ZOK) {
@@ -193,6 +240,116 @@ static int _zk_interval_lock_operation(range_file_t *context, struct timespec *t
     context->lock_name = getLockName(full_path);
 
     return _zk_determine_interval_lock_eligibility(context, ts);
+}
+
+static int _zk_determine_master_read_lock_eligibility(range_file_t *context, struct timespec *ts) {
+    // 2. GET CHILDREN
+    // get all existing master locks .../foo/master/<read/write>-<sequence>
+    struct String_vector master_locks;
+    master_locks.data = NULL;
+    master_locks.count = 0;
+    char path[strlen(context->file_path) + 8];
+    sprintf(path, "%s/master", context->file_path);
+    int ret = zoo_get_children(zh, path, 0, &master_locks);
+    if (ret != ZOK) {
+        return ret;
+    }
+
+    // get write locks
+    char* znode = strrchr(context->lock_name, '-') + 1; // shouldn't fail at all
+    char* endptr;
+    int currentSeq = strtol(znode, &endptr, 10);
+    int minSeq = currentSeq;
+    int nextSmallestSeq = 0;
+    char* nextSmallestLock;
+
+    for (int i=0; i < master_locks.count; i++) {
+        znode = strrchr(master_locks.data[i], '/');
+        if (znode != NULL && strncmp(znode + 1, "write", 5) == 0) {
+            znode = strrchr(znode, '-') + 1;    // shouldn't fail at all
+            int s = strtol(znode, &endptr, 10);
+            if (s < minSeq) 
+                minSeq = s;
+            if (s > nextSmallestSeq && s < currentSeq) {
+                nextSmallestLock = master_locks.data[i];
+                nextSmallestSeq = s;
+            }
+        }
+    }
+
+    // lock acquired if smallest sequence write lock equals currentSequence
+    if (currentSeq == minSeq) {
+        context->lock_acquired = 1;
+        return ZOK;
+    }
+    
+    // watch write node with largest seq number smallest than currentSequence   
+    struct Stat stat;
+    ret = zoo_wexists(zh, nextSmallestLock, watcher, (void*) context, &stat);
+    int retry_count = 0;
+    while (ret != ZOK && retry_count < 3) {
+        ret = zoo_wexists(zh, nextSmallestLock, watcher, (void*) context, &stat);
+        if (ret != ZOK) {
+            nanosleep(ts, 0);
+            retry_count++;
+        }
+    }
+
+    return ret;
+}
+
+static int _zk_determine_master_write_lock_eligibility(range_file_t *context, struct timespec *ts) {
+    // 2. GET CHILDREN
+    // get all existing master locks .../foo/master/<read/write>-<sequence>
+    struct String_vector master_locks;
+    master_locks.data = NULL;
+    master_locks.count = 0;
+    char path[strlen(context->file_path) + 8];
+    sprintf(path, "%s/master", context->file_path);
+    int ret = zoo_get_children(zh, path, 0, &master_locks);
+    if (ret != ZOK) {
+        return ret;
+    }
+
+    // get all master r/w locks
+    char* znode = strrchr(context->lock_name, '-') + 1; // shouldn't fail at all
+    char* endptr;
+    int currentSeq = strtol(znode, &endptr, 10);
+    int minSeq = currentSeq;
+    int nextSmallestSeq = 0;
+    char* nextSmallestLock;
+
+    for (int i=0; i < master_locks.count; i++) {
+        znode = strrchr(znode, '-') + 1;    // shouldn't fail at all
+        int s = strtol(znode, &endptr, 10);
+        if (s < minSeq) 
+            minSeq = s;
+        if (s > nextSmallestSeq && s < currentSeq) {
+            nextSmallestLock = master_locks.data[i];
+            nextSmallestSeq = s;
+        }
+
+    }
+
+    // lock acquired if smallest sequence write lock equals currentSequence
+    if (currentSeq == minSeq) {
+        context->lock_acquired = 1;
+        return ZOK;
+    }
+    
+    // watch node with largest seq number smallest than currentSequence
+    struct Stat stat;
+    ret = zoo_wexists(zh, nextSmallestLock, watcher, (void*) context, &stat);
+    int retry_count = 0;
+    while (ret != ZOK && retry_count < 3) {
+        ret = zoo_wexists(zh, nextSmallestLock, watcher, (void*) context, &stat);
+        if (ret != ZOK) {
+            nanosleep(ts, 0);
+            retry_count++;
+        }
+    }
+
+    return ret;
 }
 
 static int _zk_determine_interval_lock_eligibility(range_file_t *context, struct timespec *ts) {
@@ -391,6 +548,11 @@ int cmpSequenceFunc(const void * a, const void * b) {
 // compare function for it_node_t* elements by offset
 int cmpOffsetIdFunc(const void * a, const void * b) {
     return ((*(it_node_t**)a)->id - (*(it_node_t**)b)->id);
+}
+
+// compare function for strings, alphabetical order
+int cmpAlphabetical(const void * a, const void * b) {
+    return strcmp(*((const char **)a), *((const char **)b));
 }
 
 // TODO test

@@ -32,5 +32,6 @@ static char* getLockName(char* str);
 static size_t getSequenceNumber(char* lock_name);
 int cmpSequenceFunc(const void * a, const void * b);
 int cmpOffsetIdFunc(const void * a, const void * b);
+int cmpAlphabetical(const void * a, const void * b);
 
 #endif
