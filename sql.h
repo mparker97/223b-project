@@ -16,7 +16,7 @@ int query_resize_file(struct range_file* f, int swp_fd, int backing_fd);
 /* SCHEMA:
 CREATE TABLE Range (
 	RangeId SERIAL,
-	Name VARCHAR UNIQUE
+	RangeName VARCHAR(64) UNIQUE
 );
 CREATE TABLE File (
 	FileId SERIAL,

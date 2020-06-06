@@ -168,10 +168,9 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 		// must keep old bound for resize file query
 			// However, don't need old base, so replace it with new bound
 			// Bound stays as the old bound
-		p_itn->base = o_close - i * oracle_len[0];
+		p_itn->base = o_close - i * oracle_len[0]; // TODO
 		i++;
 	}
-	// TODO: need where region starts in swap file?
 	if (query_resize_file(rf, swp_fd, backing_fd) >= 0){
 		unlink_by_fd(swp_fd); // to remove swap file
 	}
@@ -182,6 +181,78 @@ rexec:
 pass:
 	close(backing_fd);
 	return ret;
+}
+
+
+static int exec_editor(char* f_path){
+	char* tmp;
+	int f = fork();
+	if (f < 0){
+		fprintf(stderr, "Fork failed\n");
+		return -1;
+	}
+	if (f == 0){
+		// squeeze in file between exe and args
+		p_exe_path[-1] = p_exe_path[0];
+		p_exe_path[0] = f_path;
+		execvp(p_exe_path[-1], &p_exe_path[-1]);
+		err_out(true, "Failed to run executable %s\n", tmp);
+	}
+	else{
+		printf("Writing file %s from pid %d\n", f_path, f);
+		waitpid(f, NULL, 0);
+	}
+	return f;
+}
+
+struct open_files_thread{
+	pthread_t thd;
+	struct range_file* rf;
+};
+
+static void* thd_open_files(void* arg){
+	char path[PATH_MAX];
+	struct open_files_thread* oft = (struct open_files_thread*)arg;
+	int i, swp_fd;
+	swp_fd = pull_swap_file(oft->rf);
+	if (swp_fd < 0){
+		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
+		goto fail;
+	}
+	get_path_by_fd(path, swp_fd);
+	if (!path){
+		fprintf(stderr, "Failed to resolve swap file path for %s\n", oft->rf->file_path);
+		goto fail;
+	}
+	do{
+		// TODO: can I keep the swap file desc open while I do exec?
+		if (exec_editor(path) < 0){
+			goto fail;
+		}
+		i = push_swap_file(swp_fd, oft->rf);
+		if (i == -1){
+			goto fail;
+		}
+	} while (i < 0);
+	return (void*)1;
+fail:
+	return NULL;
+}
+
+void open_files(struct range* r){
+	int i, j;
+	struct open_files_thread* thds = malloc(r->num_files * sizeof(struct open_files_thread));
+	void* retval;
+	err_out(!thds, "Malloc open files threads failed\n");
+	for (i = 0; i < r->num_files; i++){
+		thds[i].rf = &r->files[i];
+		pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i]);
+	}
+	for (i = 0; i < r->num_files; i++){
+		pthread_join(thds[i].thd, &retval);
+	}
+	if (thds)
+		free(thds);
 }
 
 int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd){

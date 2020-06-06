@@ -7,6 +7,8 @@
 #include "range.h"
 
 int range_init(struct range* r, char* name){
+	if (strlen(name) > RANGE_NAME_LEN_MAX)
+		goto fail;
 	if (!(r->name = strdup(name)))
 		goto fail;
 	if (!a_list_init(&r->ls, sizeof(struct range_file)))

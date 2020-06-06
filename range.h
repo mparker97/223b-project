@@ -30,7 +30,6 @@ struct it_node* range_file_add_it(struct range_file* rf, size_t base, size_t bou
 void print_file(struct range_file* rf, char* tab_buf);
 void print_range(struct range* r, char* tab_buf);
 
-
 static void do_print_range(struct range* r){
 	char tab_buf[8];
 	tab_buf[0] = 0;

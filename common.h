@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include "sql.h"
 
+#define RANGE_NAME_LEN_MAX
 #define PATH_MAX 4095
 #define ORACLE_LEN_MIN 8
 #define ORACLE_LEN_MAX 255
@@ -31,6 +32,7 @@
 		(buf)[TAB_OUT_BUF_LEN] = 0; \
 	} while (0)
 
+extern char** p_exe_path;
 extern pthread_mutex_t print_lock;
 #include "range.h"
 
