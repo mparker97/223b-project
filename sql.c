@@ -451,7 +451,7 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
+int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
 	#define NUM_STMT 4
 	#define NUM_BIND 5
 	int ret = 0, i = 0;
@@ -505,7 +505,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd){
 		ou[i].swp_end = itn.bound;
 		i++;
 	}
-	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd) > 0);
+	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, struct oracles* o) > 0);
 	
 	TXN_COMMIT;
 	goto pass;

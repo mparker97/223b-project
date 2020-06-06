@@ -62,7 +62,7 @@ out_pass:
 	return s;
 }
 
-void get_oracles(char* file_path){
+void get_oracles(struct oracles* o, char* file_path){
 	FILE* f;
 	char* target = NULL, *line = NULL, *str, *fname, *ext;
 	size_t n, new_sz;
@@ -126,8 +126,10 @@ default_oracles:
 	target = DEFAULT_START_ORACLE;
 	str = DEFAULT_END_ORACLE;
 end:
-	strcpy(start_oracle, target);
-	strcpy(end_oracle, str);
+	strcpy(o->oracle[0], target);
+	o->oracle_len[0] = strlen(target);
+	strcpy(o->oracle[1], str);
+	o->oracle_len[1] = strlen(str);
 	if (f)
 		fclose(f);
 	if (target)

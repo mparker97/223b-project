@@ -21,8 +21,6 @@ char* DEFAULT_START_ORACLE = "[START ORACLE]";
 char* DEFAULT_END_ORACLE = "[END ORACLE]";
 
 char swp_dir[PATH_MAX];
-char start_oracle[ORACLE_LEN_MAX+1]; // TODO: not thread safe
-char end_oracle[ORACLE_LEN_MAX+1];
 
 static char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
 	char* ret, *s;
@@ -71,7 +69,7 @@ static ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size
 	return -1;
 }
 
-static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, char* oracle[], size_t oracle_len[]){
+static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, struct oracles* o){
 	struct it_node* p_itn;
 	struct stat st;
 	size_t swp_pos = 0, adj_bound;
@@ -89,21 +87,19 @@ static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, char* oracl
 			adj_bound = p_itn->bound;
 		}
 		sendfile(swp_fd, f_fd, NULL, p_itn->base - swp_pos);
-		write(swp_fd, oracle[0], oracle_len[0]);
+		write(swp_fd, o->oracle[0], o->oracle_len[0]);
 		cond = sendfile(swp_fd, f_fd, NULL, adj_bound - p_itn->base);
-		write(swp_fd, oracle[1], oracle_len[1]);
+		write(swp_fd, o->oracle[1], o->oracle_len[1]);
 		swp_pos = p_itn->bound;
 	}
 	sendfile(swp_fd, f_fd, NULL, st.st_size - lseek(f_fd, 0, SEEK_CUR));
 }
 
-int pull_swap_file(struct range_file* rf){
+int pull_swap_file(struct range_file* rf, struct oracles* o){
 	int swp_fd = 0, backing_fd = 0;
 	char* s;
 	struct stat f_stat;
 	it_node_t zkcontext;
-	char* oracle[2];
-	size_t oracle_len[2];
 	//char path[32];
 
 	if (!(s = swap_file_path(swp_dir, rf->file_path))){
@@ -111,11 +107,7 @@ int pull_swap_file(struct range_file* rf){
 		goto fail;
 	}
 	
-	get_oracles(rf->file_path);
-	oracle[0] = start_oracle;
-	oracle[1] = end_oracle;
-	oracle_len[0] = strlen(start_oracle);
-	oracle_len[1] = strlen(end_oracle);
+	get_oracles(o, rf->file_path);
 	
 	// master read lock
 	zkcontext.lock_type = LOCK_TYPE_MASTER_READ;
@@ -144,7 +136,7 @@ int pull_swap_file(struct range_file* rf){
 	fstat(backing_fd, &f_stat);
 	//oracle_len[0]--;
 	//oracle_len[1]--;
-	add_oracles(swp_fd, backing_fd, rf, oracle, oracle_len);
+	add_oracles(swp_fd, backing_fd, rf, o);
 	
 	close(backing_fd);
     //snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
@@ -162,12 +154,10 @@ fail:
 	return -1;
 }
 
-int push_swap_file(int swp_fd, struct range_file* rf){
+int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
 	int ret = 0, backing_fd, i = 0;
-	char* oracle[2] = {start_oracle, end_oracle};
-	size_t oracle_len[2] = {strlen(start_oracle), strlen(end_oracle)};
 	struct it_node* p_itn;
-	ssize_t o_open = 0, o_close = -oracle_len[1];//, total_change = 0;
+	ssize_t o_open = 0, o_close = -o->oracle_len[1];//, total_change = 0;
 	
 	// master write lock
 	it_node_t zkcontext;
@@ -189,26 +179,26 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 		goto pass; // really fail
 	}
 	it_foreach(&rf->it, p_itn){
-		o_open = oracle_search(swp_fd, start_oracle, oracle_len[0], o_close + oracle_len[1]);
+		o_open = oracle_search(swp_fd, o->oracle[0], o->oracle_len[0], o_close + o->oracle_len[1]);
 		if (o_open < 0){
-			fprintf(stderr, "Failed to find opening oracle:\n\t%s\nfor range %d\n", oracle[0], i);
+			fprintf(stderr, "Failed to find opening oracle:\n\t%s\nfor range %d\n", o->oracle[0], i);
 			goto rexec;
 		}
 		/*else if (o_open != p_itn->base + total_change){
 			fprintf(stderr, "warning: opening oracle for range %d moved by %ld %s\n",
 				i, (p_itn->base + total_change) - o_open, (rf->mode == RANGE_FILE_MODE_NORMAL)? "bytes" : "lines");
 		}*/
-		o_close = oracle_search(swp_fd, end_oracle, oracle_len[1], o_open + oracle_len[0]);
+		o_close = oracle_search(swp_fd, o->oracle[1], o->oracle_len[1], o_open + o->oracle_len[0]);
 		if (o_close < 0){
-			fprintf(stderr, "Failed to find closing oracle:\n\t%s\nfor range %d\n", oracle[1], i);
+			fprintf(stderr, "Failed to find closing oracle:\n\t%s\nfor range %d\n", o->oracle[1], i);
 			goto rexec;
 		}
 		//total_change += o_close - (p_itn->bound);
-		p_itn->base = o_open - i * (oracle_len[0] + oracle_len[1]);
-		p_itn->bound = o_close - i * (oracle_len[0] + oracle_len[1]) - oracle_len[0];
+		p_itn->base = o_open - i * (o->oracle_len[0] + o->oracle_len[1]);
+		p_itn->bound = o_close - i * (o->oracle_len[0] + o->oracle_len[1]) - o->oracle_len[0];
 		i++;
 	}
-	if (query_resize_file(rf, swp_fd, backing_fd) >= 0){
+	if (query_resize_file(rf, swp_fd, backing_fd, o) >= 0){
 		unlink_by_fd(swp_fd); // to remove swap file
 	}
 	close(swp_fd);
@@ -250,8 +240,9 @@ struct open_files_thread{
 static void* thd_open_files(void* arg){
 	char path[PATH_MAX];
 	struct open_files_thread* oft = (struct open_files_thread*)arg;
+	struct oracles o;
 	int i, swp_fd;
-	swp_fd = pull_swap_file(oft->rf);
+	swp_fd = pull_swap_file(oft->rf, &o);
 	if (swp_fd < 0){
 		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
 		goto fail;
@@ -266,7 +257,7 @@ static void* thd_open_files(void* arg){
 		if (exec_editor(path) < 0){
 			goto fail;
 		}
-		i = push_swap_file(swp_fd, oft->rf);
+		i = push_swap_file(swp_fd, oft->rf, &o);
 		if (i == -1){
 			goto fail;
 		}
@@ -292,7 +283,7 @@ void open_files(struct range* r){
 		free(thds);
 }
 
-int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd){
+int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd, struct oracles* o){
 	// TODO: add back in oracle lengths?
 	int ret = 0, i, tmp_fd;
 	off_t pos = 0;
