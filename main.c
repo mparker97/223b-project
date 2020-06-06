@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
-#include <wait.h>
 #include "file.h"
 #include "sql.h"
 #include "common.h"
@@ -54,7 +53,7 @@ void* thd_pfile(void* arg){
 	struct range_file rf;
 	char* name = (char*)arg;
 	it_init(&rf.it);
-	if (query_select_file_intervals(&rf, name, NULL) >= 0){
+	if (query_select_file_intervals(&rf, name, 0) >= 0){
 		do_print_file(&rf);
 	}
 	else{

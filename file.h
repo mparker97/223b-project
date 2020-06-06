@@ -3,6 +3,10 @@
 #include "common.h"
 #include "range.h"
 
+// not const b/c discard qualifier
+extern char* DEFAULT_START_ORACLE;
+extern char* DEFAULT_END_ORACLE;
+
 extern char swp_dir[PATH_MAX];
 extern char start_oracle[ORACLE_LEN_MAX+1];
 extern char end_oracle[ORACLE_LEN_MAX+1];

@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wait.h>
 #include <sys/stat.h>
 #include <sys/sendfile.h>
 #include "file.h"
@@ -15,11 +16,12 @@
 #include "interval_tree.h"
 #include "zkclient.h"
 
-const char* DEFAULT_START_ORACLE = "[START ORACLE]";
-const char* DEFAULT_END_ORACLE = "[END ORACLE]";
+// not const b/c discard qualifier
+char* DEFAULT_START_ORACLE = "[START ORACLE]";
+char* DEFAULT_END_ORACLE = "[END ORACLE]";
 
 char swp_dir[PATH_MAX];
-char start_oracle[ORACLE_LEN_MAX+1];
+char start_oracle[ORACLE_LEN_MAX+1]; // TODO: not thread safe
 char end_oracle[ORACLE_LEN_MAX+1];
 
 static char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
@@ -69,7 +71,7 @@ static ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size
 	return -1;
 }
 
-static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
+static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, char* oracle[], size_t oracle_len[]){
 	struct it_node* p_itn;
 	struct stat st;
 	size_t swp_pos = 0, adj_bound;
@@ -92,7 +94,7 @@ static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, char** orac
 		write(swp_fd, oracle[1], oracle_len[1]);
 		swp_pos = p_itn->bound;
 	}
-	sendfile(swp_fd, f_fd, NULL, st.st_size - lseek(backing_fd, 0, SEEK_CURR));
+	sendfile(swp_fd, f_fd, NULL, st.st_size - lseek(f_fd, 0, SEEK_CUR));
 }
 
 int pull_swap_file(struct range_file* rf){
@@ -100,6 +102,7 @@ int pull_swap_file(struct range_file* rf){
 	char* s;
 	struct stat f_stat;
 	it_node_t zkcontext;
+	char* oracle[2];
 	size_t oracle_len[2];
 	//char path[32];
 
@@ -109,6 +112,8 @@ int pull_swap_file(struct range_file* rf){
 	}
 	
 	get_oracles(rf->file_path);
+	oracle[0] = start_oracle;
+	oracle[1] = end_oracle;
 	oracle_len[0] = strlen(start_oracle);
 	oracle_len[1] = strlen(end_oracle);
 	
@@ -145,7 +150,7 @@ int pull_swap_file(struct range_file* rf){
     //snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
     //linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
 	free(s);
-	fsync(swp_fd):
+	fsync(swp_fd);
 	return swp_fd;
 fail:
 	if (backing_fd >= 0)
@@ -159,17 +164,17 @@ fail:
 
 int push_swap_file(int swp_fd, struct range_file* rf){
 	int ret = 0, backing_fd, i = 0;
+	char* oracle[2] = {start_oracle, end_oracle};
 	size_t oracle_len[2] = {strlen(start_oracle), strlen(end_oracle)};
 	struct it_node* p_itn;
-	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
+	ssize_t o_open = 0, o_close = -oracle_len[1];//, total_change = 0;
 	
 	// master write lock
 	it_node_t zkcontext;
 	zkcontext.lock_type = LOCK_TYPE_MASTER_WRITE;
 	zkcontext.file_path = rf->file_path;
 	pthread_mutex_init(&(zkcontext.pmutex), NULL);
-	int ret = zk_acquire_lock(&zkcontext);
-	if (ret != ZOK) {
+	if (zk_acquire_lock(&zkcontext) != ZOK){
 		goto pass;
 	}
 	if (!zkcontext.lock_acquired) {
@@ -184,7 +189,7 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 		goto pass; // really fail
 	}
 	it_foreach(&rf->it, p_itn){
-		o_open = oracle_search(swp_fd, start_oracle, oracle_len[0], o_close + oracle_len[0]);
+		o_open = oracle_search(swp_fd, start_oracle, oracle_len[0], o_close + oracle_len[1]);
 		if (o_open < 0){
 			fprintf(stderr, "Failed to find opening oracle:\n\t%s\nfor range %d\n", oracle[0], i);
 			goto rexec;
@@ -199,10 +204,8 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 			goto rexec;
 		}
 		//total_change += o_close - (p_itn->bound);
-		// must keep old bound for resize file query
-			// However, don't need old base, so replace it with new bound
-			// Bound stays as the old bound
-		p_itn->base = o_close - i * oracle_len[0]; // TODO
+		p_itn->base = o_open - i * (oracle_len[0] + oracle_len[1]);
+		p_itn->bound = o_close - i * (oracle_len[0] + oracle_len[1]) - oracle_len[0];
 		i++;
 	}
 	if (query_resize_file(rf, swp_fd, backing_fd) >= 0){
@@ -216,7 +219,6 @@ pass:
 	close(backing_fd);
 	return ret;
 }
-
 
 static int exec_editor(char* f_path){
 	char* tmp;
@@ -290,30 +292,35 @@ void open_files(struct range* r){
 		free(thds);
 }
 
-const char* BACKING_SWAP_DIR = "/I/dont/know/where/to/point/this";
-
 int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd){
-	int ret = 0; i;
-	int dir_fd, repl_fd;
-	dir_fd = open(BACKING_SWAP_DIR, O_PATH | O_DIRECT);
-	if (dir_fd < 0){
-		fprintf(stderr, "Failed to open directory %s\n", BACKING_SWAP_DIR);
+	// TODO: add back in oracle lengths?
+	int ret = 0, i, tmp_fd;
+	off_t pos = 0;
+	struct stat st;
+	tmp_fd = open(swp_dir, O_RDWR | O_TMPFILE | O_EXCL, S_IRWXU);
+	if (tmp_fd < 0){
+		fprintf(stderr, "Failed to create backing swap file\n");
+		goto fail;
 	}
-	repl_fd = openat(dir_fd, );
+	fstat(backing_fd, &st);
+	lseek(backing_fd, 0, SEEK_SET);
 	for (i = 0; i < len; i++){
+		sendfile(tmp_fd, backing_fd, NULL, ou[i].backing_start - pos);
+		pos = lseek(backing_fd, ou[i].backing_end, SEEK_SET);
 		lseek(swp_fd, ou[i].swp_start, SEEK_SET);
-		// TODO
+		sendfile(tmp_fd, swp_fd, NULL, ou[i].swp_end - ou[i].swp_start);
 	}
+	sendfile(tmp_fd, backing_fd, NULL, st.st_size - pos);
+	fstat(tmp_fd, &st);
+	lseek(tmp_fd, 0, SEEK_SET);
+	sendfile(backing_fd, tmp_fd, NULL, st.st_size);
+	ftruncate(backing_fd, st.st_size);
 	fsync(backing_fd);
 goto pass;
 fail:
-	close(swp_fd);
-	close(backing_fd);
 	ret = -1;
 pass:
-	if (dir_fd >= 0)
-		close(dir_fd);
-	if (repl_fd >= 0)
-		close(repl_fd);
+	if (tmp_fd >= 0)
+		close(tmp_fd);
 	return ret;
 }
