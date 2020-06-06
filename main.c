@@ -103,7 +103,7 @@ void get_range(size_t* base, size_t* bound, char* str){
 			err_out(*bound <= *base, "Invalid region: base %lu, bound %lu\n", *base, *bound);
 			return;
 		}
-		*base = (size_t)(-1);
+		*bound = BOUND_END;
 	}
 	fprintf(stderr, "Malformed region: \"%s\"\n", str);
 	err(1);

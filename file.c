@@ -7,33 +7,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/sendfile.h>
 #include "file.h"
+#include "options.h"
 #include "sql.h"
 #include "common.h"
 #include "interval_tree.h"
-#define CP_BYTES_BUF_SZ 4096
+
+const char* DEFAULT_START_ORACLE = "[START ORACLE]";
+const char* DEFAULT_END_ORACLE = "[END ORACLE]";
 
 char swp_dir[PATH_MAX];
-char* oracle[] = {"/*OPEN_ORACLE*/", "/*CLOSE_ORACLE*/"};
-
-static void cp_bytes(int dst_fd, int src_fd, size_t sz){
-	char buf[CP_BYTES_BUF_SZ + 1];
-	size_t i;
-	ssize_t r;
-	for (i = 0; i < sz; i += r){
-		r = read(src_fd, buf, CP_BYTES_BUF_SZ);
-		if (r < 0){
-			fprintf(stderr, "Failed to read from file %d\n", src_fd);
-			close(dst_fd);
-			close(src_fd);
-			err(1);
-		}
-		else if (r == 0){
-			break;
-		}
-		write(dst_fd, buf, r);
-	}
-}
+char start_oracle[ORACLE_LEN_MAX+1];
+char end_oracle[ORACLE_LEN_MAX+1];
 
 static char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
 	char* ret, *s;
@@ -60,7 +46,7 @@ static void unlink_by_fd(int fd){
 }
 
 static ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off){ // search file identified by descriptor fd for string s of length s_len, starting at offset off
-	char* line = NULL, *str;
+	char* line, *str;
 	size_t ret = off, n;
 	ssize_t s;
 	FILE* f = fdopen(fd, "r");
@@ -69,6 +55,7 @@ static ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size
 		for (line = NULL; (s = getline(&line, &n, f)) >= 0; ret += s){
 			str = strstr(line, oracle);
 			if (str){
+				free(line);
 				return ret + (str - line);
 			}
 		}
@@ -77,29 +64,48 @@ static ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size
 	return -1;
 }
 
-static void add_oracle(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
+static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, char** oracle, size_t* oracle_len){
 	struct it_node* p_itn;
-	size_t src_pos = 0;
+	struct stat st;
+	size_t swp_pos = 0, adj_bound;
+	ssize_t cond = 0;
+	fstat(f_fd, &st);
+	lseek(swp_fd, 0, SEEK_SET);
+	lseek(f_fd, 0, SEEK_SET);
 	it_foreach(&rf->it, p_itn){
-		cp_bytes(swp_fd, f_fd, p_itn->base - src_pos);
+		if (cond < 0)
+			break;
+		if (p_itn->bound == BOUND_END){
+			adj_bound = st.st_size;
+		}
+		else{
+			adj_bound = p_itn->bound;
+		}
+		sendfile(swp_fd, f_fd, NULL, p_itn->base - swp_pos);
 		write(swp_fd, oracle[0], oracle_len[0]);
-		cp_bytes(swp_fd, f_fd, p_itn->bound - p_itn->base);
+		cond = sendfile(swp_fd, f_fd, NULL, adj_bound - p_itn->base);
 		write(swp_fd, oracle[1], oracle_len[1]);
-		src_pos = p_itn->bound;
+		swp_pos = p_itn->bound;
 	}
+	sendfile(swp_fd, f_fd, NULL, st.st_size - lseek(backing_fd, 0, SEEK_CURR));
 }
 
 int pull_swap_file(struct range_file* rf){
 	int swp_fd = 0, backing_fd = 0;
 	char* s;
 	struct stat f_stat;
-	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
+	size_t oracle_len[2];
 	char path[32];
 
 	if (!(s = swap_file_path(swp_dir, rf->file_path))){
 		fprintf(stderr, "Failed to malloc swap file name for %s\n", rf->file_path);
 		goto fail;
 	}
+	
+	get_oracles(rf->file_path);
+	oracle_len[0] = strlen(start_oracle);
+	oracle_len[1] = strlen(end_oracle);
+	
 	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
@@ -112,10 +118,9 @@ int pull_swap_file(struct range_file* rf){
 	}
 	
 	fstat(backing_fd, &f_stat);
-	oracle_len[0]--;
-	oracle_len[1]--;
-	add_oracle(swp_fd, backing_fd, rf, oracle, oracle_len);
-	cp_bytes(swp_fd, backing_fd, f_stat.st_size - lseek(backing_fd, 0, SEEK_SET));
+	//oracle_len[0]--;
+	//oracle_len[1]--;
+	add_oracles(swp_fd, backing_fd, rf, oracle, oracle_len);
 	
 	close(backing_fd);
     snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
@@ -135,7 +140,7 @@ fail:
 
 int push_swap_file(int swp_fd, struct range_file* rf){
 	int ret = 0, backing_fd, i = 0;
-	size_t oracle_len[2] = {strlen(oracle[0]), strlen(oracle[1])};
+	size_t oracle_len[2] = {strlen(start_oracle), strlen(end_oracle)};
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -oracle_len[0];//, total_change = 0;
 	backing_fd = open(rf->file_path, O_RDWR); // TODO: ZOOKEEPER HERE?
@@ -145,7 +150,7 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 		goto pass; // really fail
 	}
 	it_foreach(&rf->it, p_itn){
-		o_open = oracle_search(swp_fd, oracle[0], oracle_len[0], o_close + oracle_len[0]);
+		o_open = oracle_search(swp_fd, start_oracle, oracle_len[0], o_close + oracle_len[0]);
 		if (o_open < 0){
 			fprintf(stderr, "Failed to find opening oracle:\n\t%s\nfor range %d\n", oracle[0], i);
 			goto rexec;
@@ -154,7 +159,7 @@ int push_swap_file(int swp_fd, struct range_file* rf){
 			fprintf(stderr, "warning: opening oracle for range %d moved by %ld %s\n",
 				i, (p_itn->base + total_change) - o_open, (rf->mode == RANGE_FILE_MODE_NORMAL)? "bytes" : "lines");
 		}*/
-		o_close = oracle_search(swp_fd, oracle[1], oracle_len[1], o_open + oracle_len[0]);
+		o_close = oracle_search(swp_fd, end_oracle, oracle_len[1], o_open + oracle_len[0]);
 		if (o_close < 0){
 			fprintf(stderr, "Failed to find closing oracle:\n\t%s\nfor range %d\n", oracle[1], i);
 			goto rexec;

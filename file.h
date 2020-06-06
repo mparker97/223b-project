@@ -4,7 +4,8 @@
 #include "range.h"
 
 extern char swp_dir[PATH_MAX];
-extern char* oracle[];
+extern char start_oracle[ORACLE_LEN_MAX+1];
+extern char end_oracle[ORACLE_LEN_MAX+1];
 
 struct offset_update{
 	size_t backing_start, backing_end, swp_start, swp_end;

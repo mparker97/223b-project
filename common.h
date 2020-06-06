@@ -17,6 +17,7 @@
 #define closec(x) do{close(x); x = 0;} while (0)
 
 #define ID_NONE (unsigned long)(-1)
+#define BOUND_END ((size_t)(-1))
 
 #define offset_of(t, m) ((size_t)&((t*)0)->m)
 #define container_of(p, t, m) ((t*)((char*)(p) - offset_of(t, m)))
@@ -49,6 +50,19 @@ static void err_out(bool cond, char* msg, ...){
 		va_end(ap);
 		err(1);
 	}
+}
+
+char* pull_string(char* str){
+	int i;
+	if (str[0] == '"'){
+		for (i = 1; str[i] != 0; i++){
+			if (str[i] == '"' && str[i - 1] != '\\'){
+				str[i] = 0;
+				return str + i + 1;
+			}
+		}
+	}
+	return NULL;
 }
 
 #endif
