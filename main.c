@@ -13,7 +13,7 @@
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
-extern char swp_dir[PATH_MAX];
+extern char swp_dir[PATH_MAX + 1];
 struct range global_r;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
