@@ -8,6 +8,14 @@
 #include <pthread.h>
 //#include <sys/types.h>
 #include <stdbool.h>
+#define STR(x) #x
+#define WIGNORE(x, instrs) \
+	do{ \
+		_Pragma("GCC diagnostic push"); \
+		_Pragma(STR(GCC diagnostic ignored #x)); \
+		instrs; \
+		_Pragma("GCC diagnostic pop"); \
+	} while(0)
 #include "sql.h"
 
 #define RANGE_NAME_LEN_MAX
