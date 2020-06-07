@@ -127,7 +127,7 @@ static const char* QUERY_RESIZE_FILE[] = {
 				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @nb - @ob \
 				ELSE Base END, \
 			Bound = CASE \
-				WHEN Base <= @b AND Bound >= @ob THEN Bound + @nb - @ob \
+				WHEN Bound >= @ob THEN Bound + @nb - @ob \
 				ELSE Bound END, \
 			Conflict = CASE \
 				WHEN OffsetId = @oid THEN FALSE \
