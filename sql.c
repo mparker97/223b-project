@@ -43,7 +43,7 @@ static const char* QUERY_SELECT_NAMED_RANGE = " \
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
 	"SELECT FileId FROM File WHERE FilePath = ?", // file_path
-	"SELECT Base, Bound FROM Offset WHERE OffsetId = ?" // cur_id
+	"SELECT Base, Bound FROM Offset WHERE OffsetId = ?", // base, bound; cur_id
 	"SELECT Base, Bound, OffsetId, Conflict FROM Offset WHERE Offset.FileId = ?" // file_id
 };
 
@@ -306,7 +306,7 @@ pass:
 }
 
 int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
-	#define NUM_STMT 2
+	#define NUM_STMT 3
 	#define NUM_BIND 6
 	int ret = 0, succ;
 	MYSQL_STMT* stmt[NUM_STMT];
@@ -316,29 +316,25 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	unsigned long len;
 	char conflict;
 	char null, error;
+	//struct l_list *cur_ls = &rf->it;
 	char buf[PATH_MAX + 1];
 	memset(buf, 0, PATH_MAX+1);
-	struct l_list *cur_ls = &rf->it;
-	it_node_t new_interval;	// TODO fill with base and bound of cur_id
 	unsigned long path_len=strlen(file_path);
 
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, &null, true, &error); // File.FileId
-	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, PATH_MAX+1, &path_len, (bool*)0, true, &error); // File.FilePath
+	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, file_path, path_len+1, &path_len, (bool*)0, true, &error); // File.FilePath
 	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &bound, sizeof(size_t), NULL, &null, true, &error); // Offset.Bound
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, &null, true, &error); // Offset.OffsetId
 	mysql_bind_init(bind[5], MYSQL_TYPE_TINY, &conflict, sizeof(char), NULL, &null, true, &error); // Offset.Conflict
 	
 	fail_check(
-		pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[1], &bind[0]) &&
-		pps(&stmt[1], QUERY_SELECT_NAMED_RANGE, &bind[4], &bind[2]) &&
-		pps(&stmt[1], QUERY_SELECT_NAMED_RANGE, &bind[0], &bind[2])
+		pps(&stmt[0], QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0])&&
+		pps(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2])&&
+		pps(&stmt[2], QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
 	);
-	fail_check(
-		pps(&stmt[0], QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0]) &&
-		pps(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[0], &bind[2])
-	);
+
 
 	rf->file_path = NULL;
 	
@@ -354,6 +350,8 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	offsetId = cur_id;
 	fail_check(!mysql_stmt_execute(stmt[1]));
 	fail_check(!mysql_stmt_store_result(stmt[1]));
+	succ = mysql_stmt_fetch(stmt[1]);
+	fail_check(succ != 1 && succ != MYSQL_NO_DATA);
 
 	// get base and bound of offset cur_id
 	new_interval.base = base;
@@ -363,7 +361,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	fail_check(!mysql_stmt_store_result(stmt[2]));
 	for (;;){
 		succ = mysql_stmt_fetch(stmt[2]);
-		fail_check(succ == 1);
+		fail_check(succ != 1);
 		if (succ == MYSQL_NO_DATA){
 			break;
 		}
