@@ -316,9 +316,8 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	unsigned long len;
 	char conflict;
 	char null, error;
-	//struct l_list *cur_ls = &rf->it;
-	char buf[PATH_MAX + 1];
-	memset(buf, 0, PATH_MAX+1);
+	struct l_list *cur_ls = &rf->it;
+	it_node_t new_interval;
 	unsigned long path_len=strlen(file_path);
 
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
