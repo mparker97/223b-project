@@ -7,7 +7,7 @@
 extern char* DEFAULT_START_ORACLE;
 extern char* DEFAULT_END_ORACLE;
 
-extern char swp_dir[PATH_MAX];
+extern char swp_dir[PATH_MAX + 1];
 
 struct oracles{
 	char oracle[2][ORACLE_LEN_MAX + 1];
