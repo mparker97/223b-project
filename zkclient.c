@@ -20,6 +20,9 @@ int zkclient_init() {
     while(!zkconnected && time(0) < expires) {
         sleep(1);
     }
+    if (!zkconnected) {
+        fprintf(stderr, "Zookeeper client failed to init");
+    }
     return zkconnected;
 }
 
