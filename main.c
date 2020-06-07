@@ -1,13 +1,10 @@
 #include <stdio.h>
 #include <unistd.h>
-//#include <fcntl.h>
-//#include <sys/stat.h>
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
-#include <wait.h>
 #include "file.h"
 #include "sql.h"
 #include "common.h"
@@ -40,14 +37,15 @@ void get_range(size_t* base, size_t* bound, char* str){
 void* thd_prange(void* arg){
 	struct range r;
 	char* name = (char*)arg;
-	range_init(&r, name);
-	if (query_select_named_range(&r) >= 0){
-		do_print_range(&r);
+	if (range_init(&r, name) >= 0){
+		if (query_select_named_range(&r) >= 0){
+			do_print_range(&r);
+		}
+		else{
+			fprintf(stderr, "Unable to print range %s\n", name);
+		}
+		range_deinit(&r);
 	}
-	else{
-		fprintf(stderr, "Unable to print range %s\n", name);
-	}
-	range_deinit(&r);
 	return NULL;
 }
 
@@ -55,7 +53,7 @@ void* thd_pfile(void* arg){
 	struct range_file rf;
 	char* name = (char*)arg;
 	it_init(&rf.it);
-	if (query_select_file_intervals(&rf, name, NULL) >= 0){
+	if (query_select_file_intervals(&rf, name, 0) >= 0){
 		do_print_file(&rf);
 	}
 	else{

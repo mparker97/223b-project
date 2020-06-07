@@ -5,13 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <pthread.h>
 //#include <sys/types.h>
 #include <stdbool.h>
 #include "sql.h"
 
 #define RANGE_NAME_LEN_MAX
-#define PATH_MAX 3091 // 4095
+#define PATH_MAX 3072
 #define ORACLE_LEN_MIN 8
 #define ORACLE_LEN_MAX 255
 #define freec(x) do{free(x); x = NULL;} while (0)
@@ -33,12 +32,10 @@
 	} while (0)
 
 extern char** p_exe_path;
-extern pthread_mutex_t print_lock;
 #include "range.h"
 
 static void err(int e){
 	global_rs_deinit();
-	pthread_mutex_destroy(&print_lock);
 	sql_end();
 	// other frees
 	exit(e);
@@ -52,19 +49,6 @@ static void err_out(bool cond, char* msg, ...){
 		va_end(ap);
 		err(1);
 	}
-}
-
-char* pull_string(char* str){
-	int i;
-	if (str[0] == '"'){
-		for (i = 1; str[i] != 0; i++){
-			if (str[i] == '"' && str[i - 1] != '\\'){
-				str[i] = 0;
-				return str + i + 1;
-			}
-		}
-	}
-	return NULL;
 }
 
 #endif

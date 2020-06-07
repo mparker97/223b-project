@@ -8,7 +8,7 @@
 
 static const char* OPTIONS_FILE = "~/.whateverrc";
 static const char* RC_TOKENS = " /t";
-static char* NULL_STR = "";
+static const char* NULL_STR = "";
 
 void get_fname_ext(char** fname, char** ext, char* file_path){
 	char* s = strrchr(file_path, '/');
@@ -27,53 +27,40 @@ void get_fname_ext(char** fname, char** ext, char* file_path){
 	}
 }
 
-char* get_an_oracle(char** str, int options_line){
+char* get_an_oracle(char** str){
 	char* s = NULL, *t;
-	size_t len;
 	for (t = *str; strpbrk(t, RC_TOKENS) == t; t++);
 	if (t){
-		s = pull_string(t);
 		if (s){
 			t++;
 		}
 		else if (t[0]){
-			s = strpbrk(t, RC_TOKENS);
-			if (!s){
-				goto out_fail;
+			s = strpbrk(t, RC_TOKENS); // TODO
+			if (s){
+				s = t + strlen(t);
 			}
-			s[0] = 0;
-			s++;
+			else{
+				s = NULL;
+			}
 		}
-		len = s - t - 1;
-		if (len < ORACLE_LEN_MIN){
-			fprintf(stderr, "%s:%d: Oracle is below the minimum oracle length of %d\n", OPTIONS_FILE + 2, options_line, ORACLE_LEN_MIN);
-			s = NULL;
-		}
-		else if (len > ORACLE_LEN_MAX){
-			fprintf(stderr, "%s:%d: Oracle is above the maximum oracle length of %d\n", OPTIONS_FILE + 2, options_line, ORACLE_LEN_MAX);
-			s = NULL;
-		}
-		goto out_pass;
 	}
-out_fail:
-	fprintf(stderr, "%s:%d: Improperly formed Oracle\n", OPTIONS_FILE + 2, options_line);
-out_pass:
 	*str = t;
 	return s;
 }
 
-void get_oracles(struct oracles* o, char* file_path){
+void get_oracles(char* file_path){
 	FILE* f;
 	char* target = NULL, *line = NULL, *str, *fname, *ext;
 	size_t n, new_sz;
-	int target_level = 0, new_target, i, options_line;
+	int target_level = 0;
+	int new_target;
 	f = fopen(OPTIONS_FILE, "r");
 	if (!f){
-		fprintf(stderr, "%s not found\n", OPTIONS_FILE);
+		fprintf(stderr, "%s not found; using default oracles\n", OPTIONS_FILE);
 		goto default_oracles;
 	}
 	get_fname_ext(&fname, &ext, file_path);
-	for (i = 0; getline(&line, &n, f) >= 0; i++){
+	while (getline(&line, &n, f) >= 0){
 		if (n < 4)
 			continue;
 		str = strtok(line, RC_TOKENS);
@@ -98,9 +85,8 @@ void get_oracles(struct oracles* o, char* file_path){
 					}
 			}
 			if (new_target > target_level){
-				if (target){ // realloc check
+				if (target){
 					memcpy(target, line, new_sz);
-					options_line = i;
 				}
 				if (target_level > 2){
 					break;
@@ -112,24 +98,22 @@ void get_oracles(struct oracles* o, char* file_path){
 	if (!target){
 		goto default_oracles;
 	}
-	str = get_an_oracle(&target, options_line);
+	str = get_an_oracle(target);
 	if (str){
-		line = get_an_oracle(&str, options_line);
+		line = get_an_oracle(str);
 		if (line){
 			goto end;
 		}
 	}
 	
+	
 	goto end;
 default_oracles:
-	fprintf(stderr, "Using default oracles\n");
 	target = DEFAULT_START_ORACLE;
 	str = DEFAULT_END_ORACLE;
 end:
-	strcpy(o->oracle[0], target);
-	o->oracle_len[0] = strlen(target);
-	strcpy(o->oracle[1], str);
-	o->oracle_len[1] = strlen(str);
+	strcpy(start_oracle, target);
+	strcpy(end_oracle, src);
 	if (f)
 		fclose(f);
 	if (target)
