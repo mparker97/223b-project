@@ -120,20 +120,6 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 		// watcher in zkclient will unlock once lock gets acquired
 		pthread_mutex_lock(&(zkcontext.pmutex));
 	}
-	
-	// master read lock
-	it_node_t zkcontext;
-	zkcontext.lock_type = LOCK_TYPE_MASTER_READ;
-	zkcontext.file_path = rf->file_path;
-	pthread_mutex_init(&(zkcontext.pmutex), NULL);
-	int ret = zk_acquire_lock(&zkcontext);
-	if (ret != ZOK) {
-		goto fail;
-	}
-	if (!zkcontext.lock_acquired) {
-		// watcher in zkclient will unlock once lock gets acquired
-		pthread_mutex_lock(&(zkcontext.pmutex));
-	}
 
 	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){
