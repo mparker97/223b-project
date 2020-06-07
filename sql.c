@@ -344,7 +344,10 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	
 	offsetId = cur_id;
 	fail_check(!mysql_stmt_execute(stmt[1]));
-	// TODO: Thant: new values are in base and bound
+
+	// get base and bound of offset cur_id
+	new_interval.base = base;
+	new_interval.bound = bound;
 	
 	fail_check(!mysql_stmt_execute(stmt[2]));
 	fail_check(!mysql_stmt_store_result(stmt[2]));
