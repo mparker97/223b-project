@@ -6,7 +6,6 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
-//#include <sys/types.h>
 #include <stdbool.h>
 #define STR(x) #x
 #define WIGNORE(x, instrs) \
@@ -73,6 +72,10 @@ char* pull_string(char* str){
 		}
 	}
 	return NULL;
+}
+
+int p_strcmp(const void* a, const void* b){
+  return strcmp(*(char* const*)a, *(char* const*)b);
 }
 
 #endif

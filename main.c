@@ -84,7 +84,7 @@ void opts(int argc, char* argv[]){
 			if (!strncmp(argv[optind], "-f", 2)){
 				optind++;
 			}
-			WIGNORE(-Wincompatible-pointer-types, qsort(&argv[optind], argc - optind, sizeof(char*), strcmp));
+			qsort(&argv[optind], argc - optind, sizeof(char*), p_strcmp);
 			for (i = optind, j = optind + 1; j < argc; j++){ // remove dups
 				if (strcmp(argv[i], argv[j])){
 					i++;
