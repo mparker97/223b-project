@@ -1,13 +1,30 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h> 
+#include <unistd.h>
 #include "sql.h"
 #include "interval_tree.h"
 #include "range.h"
 #include "zkclient.h"
 
 static zhandle_t *zh;
+int zkconnected;
+const char hostPorts[] = "34.215.40.55:32181,34.210.144.130:32181,34.219.108.247:32181";
 static clientid_t myid;
+
+int zkclient_init() {
+    zkconnected = 0;
+    zh = zookeeper_init(hostPorts, watcher, 10000, 0, NULL, 0);
+    time_t expires = time(0) + 10;
+    while(!zkconnected && time(0) < expires) {
+        sleep(1);
+    }
+    if (!zkconnected) {
+        fprintf(stderr, "Zookeeper client failed to init");
+    }
+    return zkconnected;
+}
 
 /**
  * Watcher function that gets called on event trigger
@@ -28,6 +45,7 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
                 fprintf(stderr, "Got a new session id: 0x%llx\n",
                         (long long) myid.client_id);
             }
+            zkconnected = 1;
         } else if (state == ZOO_AUTH_FAILED_STATE) {
             fprintf(stderr, "Authentication failure. Shutting down...\n");
             zookeeper_close(zzh);

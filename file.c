@@ -122,6 +122,7 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 	}
 
 	backing_fd = open(rf->file_path, O_RDWR);
+
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		goto fail;
@@ -139,14 +140,20 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 	add_oracles(swp_fd, backing_fd, rf, o);
 	
 	close(backing_fd);
+	// successfully read - release master read lock
+	zk_release_lock(&zkcontext);
+
     //snprintf(path, 32, "/proc/self/fd/%d", swp_fd);
     //linkat(0, path, 0, s, AT_SYMLINK_FOLLOW);
 	free(s);
 	fsync(swp_fd);
 	return swp_fd;
 fail:
-	if (backing_fd >= 0)
+	if (backing_fd >= 0) {
 		close(backing_fd);
+		// successfully read - release master read lock
+		zk_release_lock(&zkcontext);
+	}
 	if (swp_fd >= 0);
 		close(swp_fd);
 	if (s)
@@ -208,6 +215,7 @@ rexec:
 	ret = -2;
 pass:
 	close(backing_fd);
+	zk_release_lock(&zkcontext);
 	return ret;
 }
 

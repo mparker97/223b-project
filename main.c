@@ -10,6 +10,7 @@
 #include "common.h"
 #include "range.h"
 #include "help.h"
+#include "zkclient.h"
 
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
@@ -205,7 +206,8 @@ int main(int argc, char* argv[]){
 	}
 	err_out(!getcwd(swp_dir, PATH_MAX)
 		|| sql_init() < 0
-		|| pthread_mutex_init(&print_lock, NULL),
+		|| pthread_mutex_init(&print_lock, NULL)
+		|| zkclient_init() < 0,
 		"Failed to initialize\n");
 	it_init(&global_rf.it);
 	opts(argc, argv);

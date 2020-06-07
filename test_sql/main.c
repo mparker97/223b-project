@@ -23,13 +23,14 @@ int main(int argc, char* argv[]){
 	range_init(&r,"whatever");
 	struct range_file *rf;
 	rf = range_add_file(&r,"path",1);
-	range_file_add_it(rf,0,3,1);
-	rf = range_add_file(&r,"path1",2);
-	range_file_add_it(rf,0,4,2);
-	query_insert_named_range(&r);
+	range_file_add_it(rf,0,3,33);
+	//rf = range_add_file(&r,"path1",2);
+	//range_file_add_it(rf,0,4,2);
+	//query_insert_named_range(&r);
 	struct range_file rf_ret;
-	it_node_t*pp;
-	//query_select_file_intervals(&rf_ret, "path", pp);
-	query_select_named_range(&r);
+	rf->id=39;
+	//query_select_file_intervals(&rf_ret, "path", 33);
+	//query_select_named_range(&r);
+	query_resize_file(rf);
 	
 }

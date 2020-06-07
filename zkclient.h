@@ -8,8 +8,8 @@
 #define LOCK_TYPE_MASTER_WRITE 1
 #define LOCK_TYPE_MASTER_READ 2
 
-// callback function
-typedef void (* zk_lock_callback) (void* cb_data);
+// init function
+int zkclient_init();
 
 // FUNCTION DECLARATIONS
 void watcher(zhandle_t *zzh, int type, int state, const char *path, void* context);

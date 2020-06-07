@@ -33,22 +33,23 @@
 		(bind).error = g; \
 	} while (0)
 
-static const char* QUERY_SELECT_NAMED_RANGE = " \
-	SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Bound, Offset.Conflict \ 
-	FROM (((RangeName INNER JOIN RangeFileJunction ON RangeName.RangeId = RangeFileJunction.RangeId) \
-		INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
-		INNER JOIN Offset ON File.FileId = Offset.FileId) \
-	WHERE RangeName.Name = ? AND RangeName.Init = TRUE \
+static const char* QUERY_SELECT_NAMED_RANGE = "\
+SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Bound, Offset.Conflict \ 
+FROM \
+(((RangeName INNER JOIN RangeFileJunction ON RangeName.RangeId = RangeFileJunction.RangeId) \
+INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
+INNER JOIN Offset ON File.FileId = Offset.FileId) \
+	WHERE RangeName.Name = ? AND RangeName.Init = TRUE\
 	ORDER BY File.FilePath, Offset.Base LOCK IN SHARE MODE"; // Range.RangeName changed from for share
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
 	"SELECT FileId FROM File WHERE FilePath = ?", // file_path
-	"SELECT Base, Bound FROM Offset WHERE OffsetId = ?", // base, bound; cur_id
-	"SELECT Base, Bound, OffsetId, Conflict FROM Offset WHERE Offset.FileId = ?" // file_id
+	"SELECT Base, Bound FROM Offset WHERE OffsetId = ? LOCK IN SHARE MODE", // base, bound; cur_id
+	"SELECT Base, Bound, OffsetId, Conflict FROM Offset WHERE Offset.FileId = ? LOCK IN SHARE MODE" // file_id
 };
 
 static const char* QUERY_INSERT_NAMED_RANGE[] = {
-	"INSERT INTO RangeName (Name, Init) VALUES (?, FALSE)", // insert new range name
+	"INSERT INTO RangeName (Name, init) VALUES (?, FALSE)", // insert new range name
 	// mysql_insert_id to get rangeId
 	// for each file {
 		"INSERT INTO File (FilePath) VALUES (?)", // insert new file path
@@ -120,12 +121,13 @@ static const char* QUERY_RESIZE_FILE[] = {
 	// for each offset in this file for the range {
 		"SET @oid = ?, @nb = ?", // offsetId, new_bound
 		"SELECT Base, Bound INTO @b, @ob FROM Offset WHERE OffsetId = @oid", // base, bound
+		"SELECT Base, Bound FROM Offset WHERE OffsetId = @oid", // base, bound
 		"UPDATE Offset SET \
 			Base = CASE \
 				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @nb - @ob \
 				ELSE Base END, \
 			Bound = CASE \
-				WHEN Base <= @b AND Bound >= @ob THEN Bound + @nb - @ob \
+				WHEN Bound >= @ob THEN Bound + @nb - @ob \
 				ELSE Bound END, \
 			Conflict = CASE \
 				WHEN OffsetId = @oid THEN FALSE \
@@ -136,7 +138,6 @@ static const char* QUERY_RESIZE_FILE[] = {
 		WHERE FileId = ?" // fileId
 	// }
 };
-
 static MYSQL mysql;
 
 int sql_init(){
@@ -479,7 +480,7 @@ pass:
 }
 
 int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
-	#define NUM_STMT 4
+	#define NUM_STMT 5
 	#define NUM_BIND 5
 	int ret = 0, i = 0;
 	MYSQL_STMT* stmt[NUM_STMT];
@@ -489,7 +490,6 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	unsigned long db_base, db_bound;
 	int succ, zk_released = 0;
 	char null, error;
-	
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
 	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
@@ -501,9 +501,11 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	fail_check(
 		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[0], NULL) &&
 		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], NULL) &&
-		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, &bind[3]) &&
-		pps(&stmt[3], QUERY_RESIZE_FILE[3], &bind[0], NULL)
+		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, NULL) &&
+		pps(&stmt[3], QUERY_RESIZE_FILE[3], NULL, &bind[3]) &&
+		pps(&stmt[4], QUERY_RESIZE_FILE[4], &bind[0], NULL)
 	);
+	
 	ou = malloc(rf->num_it * sizeof(struct offset_update));
 	fail_check(ou);
 	
@@ -521,13 +523,31 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	}
 	
 	fail_check(!mysql_stmt_execute(stmt[0]));
+	fail_check(!mysql_store_result(stmt[0]));
+	for(;;){
+		succ = mysql_stmt_fetch(stmt[0]); // get updated old base and bound from DB
+		fail_check(succ != 1);
+		if(succ == MYSQL_NO_DATA){
+			break;
+		}
+
+	}
 	it_foreach(&rf->it, p_itn){
 		memcpy(&itn, p_itn, sizeof(struct it_node));
 		fail_check(!mysql_stmt_execute(stmt[1]));
 		fail_check(!mysql_stmt_execute(stmt[2]));
-		succ = mysql_stmt_fetch(stmt[2]); // get updated old base and bound from DB
-		fail_check(succ != 1 && succ != MYSQL_NO_DATA);
 		fail_check(!mysql_stmt_execute(stmt[3]));
+		fail_check(!mysql_store_result(stmt[3]));
+		for(;;){
+			succ = mysql_stmt_fetch(stmt[3]); // get updated old base and bound from DB
+
+			fail_check(succ != 1);
+			if(succ == MYSQL_NO_DATA){
+				break;
+			}
+
+		}
+		fail_check(!mysql_stmt_execute(stmt[4]));
 		ou[i].backing_start = db_base;
 		ou[i].backing_end = db_bound;
 		ou[i].swp_start = itn.base;

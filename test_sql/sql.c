@@ -42,9 +42,8 @@ INNER JOIN Offset ON File.FileId = Offset.FileId) \
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
 	"SELECT FileId FROM File WHERE FilePath = ?", // file_path
-	"SELECT OffsetId, Base, Bound, Conflict \
-	FROM Offset \
-	WHERE Offset.FileId = ?" // file_id
+	"SELECT Base, Bound FROM Offset WHERE OffsetId = ? LOCK IN SHARE MODE", // base, bound; cur_id
+	"SELECT Base, Bound, OffsetId, Conflict FROM Offset WHERE Offset.FileId = ? LOCK IN SHARE MODE" // file_id
 };
 
 static const char* QUERY_INSERT_NAMED_RANGE[] = {
@@ -120,6 +119,7 @@ static const char* QUERY_RESIZE_FILE[] = {
 	// for each offset in this file for the range {
 		"SET @oid = ?, @nb = ?", // offsetId, new_bound
 		"SELECT Base, Bound INTO @b, @ob FROM Offset WHERE OffsetId = @oid", // base, bound
+		"SELECT Base, Bound FROM Offset WHERE OffsetId = @oid", // base, bound
 		"UPDATE Offset SET \
 			Base = CASE \
 				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @nb - @ob \
@@ -185,6 +185,7 @@ int pps(MYSQL_STMT** ret, const char* query, MYSQL_BIND* in, MYSQL_BIND* out){ /
 		mysql_stmt_bind_result(stmt, out);
 	printf("3\n");
 	}
+	printf("returning \n");
 	return 1;
 fail:
 	return 0;
@@ -222,18 +223,15 @@ int query_select_named_range(struct range* r){ // range already has r->name
 	unsigned long len;
 	char conflict;
 	char null, error;
-	MYSQL_RES * res;
 	
 	old_buf[0] = 0;
 	len = strlen(r->name);
-	int path_len = PATH_MAX;
+	unsigned long path_len;
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
-	memset(buf, 0, PATH_MAX+1);
-	memset(old_buf, 0, PATH_MAX+1);
 	
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, &null, true, &error); // File.FileId
 	
-	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, path_len, &path_len, (bool*)0, true, &error); // File.FilePath
+	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, PATH_MAX+1, &path_len, (bool*)0, true, &error); // File.FilePath
 	
 	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, &null, true, &error); // Offset.OffsetId
 	
@@ -247,9 +245,8 @@ int query_select_named_range(struct range* r){ // range already has r->name
 	);
 	TXN_START;
 	fail_check(!mysql_stmt_execute(stmt[0]));
-	res = mysql_stmt_store_result(stmt[0]);
+	fail_check(!mysql_stmt_store_result(stmt[0]));
 	//printf("res is %d\n",res); res is always 0
-	mysql_free_result(res);
 	for (;;){
 		succ = mysql_stmt_fetch(stmt[0]);
 		fail_check(succ != 1);
@@ -257,6 +254,7 @@ int query_select_named_range(struct range* r){ // range already has r->name
 		if (succ == MYSQL_NO_DATA){
 			break;
 		}
+		buf[path_len] = 0;
 
 		printf("id: %d\n",offsetId);
 		printf("path: %s\n",buf);
@@ -298,8 +296,8 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_t* new_interval){
-	#define NUM_STMT 2
+int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
+	#define NUM_STMT 3
 	#define NUM_BIND 6
 	int ret = 0, succ;
 	MYSQL_STMT* stmt[NUM_STMT];
@@ -309,66 +307,63 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, it_node_
 	unsigned long len;
 	char conflict;
 	char null, error;
-	char buf[PATH_MAX + 1];
-	MYSQL_RES * res;
-	memset(buf, 0, PATH_MAX+1);
 	//struct l_list *cur_ls = &rf->it;
-	if (strlen(file_path)<PATH_MAX){
-		for (int i=0;i<strlen(file_path);i++){
-			buf[i]=file_path[i];
-		}	
-	}
-	int path_len = PATH_MAX;
+	unsigned long path_len=strlen(file_path);
+
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, &null, true, &error); // File.FileId
-	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, path_len, &path_len, (bool*)0, true, &error); // File.FilePath
-	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, &null, true, &error); // Offset.OffsetId
-	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
-	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &bound, sizeof(size_t), NULL, &null, true, &error); // Offset.Bound
+	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, file_path, path_len+1, &path_len, (bool*)0, true, &error); // File.FilePath
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
+	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &bound, sizeof(size_t), NULL, &null, true, &error); // Offset.Bound
+	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, &null, true, &error); // Offset.OffsetId
 	mysql_bind_init(bind[5], MYSQL_TYPE_TINY, &conflict, sizeof(char), NULL, &null, true, &error); // Offset.Conflict
 	
-	fail_check(
-		pps(&stmt[0], QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0]) &&
-		pps(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[0], &bind[2])
-	);
-	
+	//fail_check(
+		pps(&stmt[0], QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0]);
+		pps(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2]);
+		pps(&stmt[2], QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2]);
+	//);
+
 	rf->file_path = NULL;
 	
 	TXN_START;
 	
 	fail_check(!mysql_stmt_execute(stmt[0]));
-	res = mysql_stmt_store_result(stmt[0]);
+	fail_check(!mysql_stmt_store_result(stmt[0]));
 	//printf("%d\n",res); res is always 0
-	mysql_free_result(res);
 	
 	succ = mysql_stmt_fetch(stmt[0]);
 	fail_check(succ != 1 && succ != MYSQL_NO_DATA);
 	
 	fail_check(rf->file_path = strdup(file_path));
-	
 	rf->id = fileId;
-	null = false;
-	printf("fileid: %d\n",rf->id);
-	
+	printf("file is id %d\n",fileId);
+	offsetId = cur_id;
+	printf("offset id is %d\n",offsetId);
 	fail_check(!mysql_stmt_execute(stmt[1]));
+	fail_check(!mysql_stmt_store_result(stmt[1]));
+	succ = mysql_stmt_fetch(stmt[1]);
+	fail_check(succ != 1 && succ != MYSQL_NO_DATA);
+
+	// get base and bound of offset cur_id
+	printf("base is %d\n",base);
+	printf("bound is %d\n",bound);
 	
-	res = mysql_stmt_store_result(stmt[1]);
-	//printf("%d\n",res);
-	mysql_free_result(res);
-	
+	fail_check(!mysql_stmt_execute(stmt[2]));
+	fail_check(!mysql_stmt_store_result(stmt[2]));
 	for (;;){
-		succ = mysql_stmt_fetch(stmt[1]);
+		succ = mysql_stmt_fetch(stmt[2]);
 		fail_check(succ != 1);
 		if (succ == MYSQL_NO_DATA){
 			break;
 		}
+	printf("base is %d\n",base);
+	printf("bound is %d\n",bound);
+	printf("offset is %d\n",offsetId);
+	printf("conflict is %d\n",conflict);
 		if (conflict){
 			printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 		}
-		printf("offsetid: %d\n",offsetId);
-		printf("base: %d\n",base);
-		printf("bound: %d\n",bound);
-		printf("conflict: %d\n",conflict);
 		it_node_t* cur_interval = (it_node_t*) malloc(sizeof(it_node_t));
 		fail_check(cur_interval != NULL);
 		cur_interval->ls = L_LIST_NULL;
@@ -411,15 +406,13 @@ int query_insert_named_range(struct range* r){
 	unsigned long rangeId, fileId, name_len;
 	char null, error;
 	name_len = strlen(r->name);
-	int path_len = PATH_MAX;
+	unsigned long path_len;
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
-	memset(buf, 0, PATH_MAX+1);
-	MYSQL_RES * res;
 	
 	
 	bool temp = false;	
 	mysql_bind_init(bind[0], MYSQL_TYPE_STRING, r->name, name_len, &name_len, &temp, true, &error); // Range.Name
-	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, path_len, &path_len, (bool*)0, true, &error); // File.FilePath
+	mysql_bind_init(bind[1], MYSQL_TYPE_STRING, buf, PATH_MAX+1, &path_len, (bool*)0, true, &error); // File.FilePath
 	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &rangeId, sizeof(size_t), NULL, (bool*)0, true, &error); // RangeId
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &fileId, sizeof(size_t), NULL, &null, true, &error); // FileId
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &itn.base, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.Base
@@ -456,14 +449,13 @@ int query_insert_named_range(struct range* r){
 	rangeId = mysql_insert_id(&mysql);
 	
 	for (i = 0; i < r->num_files; i++){
-		name_len = strlen(r->files[i].file_path);
-		memcpy(buf, r->files[i].file_path, name_len + 1);
+		path_len = strlen(r->files[i].file_path);
+		printf("path lengt is %d",path_len);
+		memcpy(buf, r->files[i].file_path, path_len + 1);
 		fail_check(!mysql_stmt_execute(stmt[1]));
 		if (mysql_stmt_affected_rows(stmt[1]) == 0){
 			fail_check(!mysql_stmt_execute(stmt[2]));
-			res = mysql_stmt_store_result(stmt[2]);
-			//printf("res is %d\n",res); res is always 0
-			mysql_free_result(res);
+			fail_check(!mysql_store_result(stmt[2]));
 			succ = mysql_stmt_fetch(stmt[2]);
 			fail_check(succ != 1);
 			if (succ == MYSQL_NO_DATA){
@@ -510,4 +502,82 @@ pass:
 	return ret;
 	#undef NUM_STMT
 	#undef NUM_BIND
+}
+
+int query_resize_file(struct range_file* rf){
+	#define NUM_STMT 5
+	#define NUM_BIND 5
+	int ret = 0, i = 0;
+	MYSQL_STMT* stmt[NUM_STMT];
+	MYSQL_BIND bind[NUM_BIND];
+	struct it_node* p_itn, itn;
+	unsigned long db_base, db_bound;
+	int succ, zk_released = 0;
+	char null, error;
+	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
+	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
+	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // new_bound
+	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &db_base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
+	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &db_bound, sizeof(size_t), NULL, &null, true, &error); // Offset.Bound
+	
+	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
+	fail_check(
+		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[0], NULL) &&
+		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], NULL) &&
+		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, NULL) &&
+		pps(&stmt[3], QUERY_RESIZE_FILE[3], NULL, &bind[3]) &&
+		pps(&stmt[4], QUERY_RESIZE_FILE[4], &bind[0], NULL)
+	);
+	
+	TXN_START;
+	
+	fail_check(!mysql_stmt_execute(stmt[0]));
+	fail_check(!mysql_store_result(stmt[0]));
+	for(;;){
+		succ = mysql_stmt_fetch(stmt[0]); // get updated old base and bound from DB
+		fail_check(succ != 1);
+		if(succ == MYSQL_NO_DATA){
+			break;
+		}
+
+	}
+	
+	it_foreach(&rf->it, p_itn){
+		memcpy(&itn, p_itn, sizeof(struct it_node));
+		printf("%d\n",itn.id);
+		fail_check(!mysql_stmt_execute(stmt[1]));
+		fail_check(!mysql_stmt_execute(stmt[2]));
+		fail_check(!mysql_stmt_execute(stmt[3]));
+		fail_check(!mysql_store_result(stmt[3]));
+		for(;;){
+			succ = mysql_stmt_fetch(stmt[3]); // get updated old base and bound from DB
+
+			fail_check(succ != 1);
+			if(succ == MYSQL_NO_DATA){
+				break;
+			}
+
+		}
+		fail_check(!mysql_stmt_execute(stmt[4]));
+//		ou[i].backing_start = db_base;
+//		ou[i].backing_end = db_bound;
+//		ou[i].swp_start = itn.base;
+//		ou[i].swp_end = itn.bound;
+		i++;
+	}
+	
+	TXN_COMMIT;
+	goto pass;
+fail:
+	TXN_ROLLBACK;
+	printf("failed\n");
+	ret = -1;
+	stmt_errors(stmt, NUM_STMT);
+pass:
+	// release failed earlier
+	close_stmts(stmt, NUM_STMT);
+	return ret;
+	#undef NUM_BIND
+	#undef NUM_STMT
 }
