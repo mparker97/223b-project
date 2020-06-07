@@ -1,11 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include "file.h"
-#include "sql.h"
-#include "common.h"
-#include "interval_tree.h"
-#include "range.h"
+#include "../file.h"
+#include "../sql.h"
+#include "../common.h"
+#include "../interval_tree.h"
+#include "../range.h"
 
 // do while (0) to allow semicolon after
 #define fail_check(c) \

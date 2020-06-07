@@ -15,7 +15,6 @@
 		instrs; \
 		_Pragma("GCC diagnostic pop"); \
 	} while(0)
-#include "sql.h"
 
 #define RANGE_NAME_LEN_MAX 64
 #define PATH_MAX 3072
@@ -41,6 +40,7 @@
 
 extern char** p_exe_path;
 extern pthread_mutex_t print_lock;
+#include "sql.h"
 #include "range.h"
 
 static void err(int e){
@@ -61,7 +61,7 @@ static void err_out(bool cond, char* msg, ...){
 	}
 }
 
-char* pull_string(char* str){
+static char* pull_string(char* str){
 	int i;
 	if (str[0] == '"'){
 		for (i = 1; str[i] != 0; i++){
@@ -74,7 +74,7 @@ char* pull_string(char* str){
 	return NULL;
 }
 
-int p_strcmp(const void* a, const void* b){
+static int p_strcmp(const void* a, const void* b){
   return strcmp(*(char* const*)a, *(char* const*)b);
 }
 

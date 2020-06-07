@@ -84,9 +84,13 @@ void opts(int argc, char* argv[]){
 			if (!strncmp(argv[optind], "-f", 2)){
 				optind++;
 			}
+			
+			k = optind;
 			if (optind < argc){
-				qsort(&argv[optind], argc - optind, sizeof(char*), p_strcmp);
-				for (i = optind, j = optind + 1; j < argc; j++){ // remove dups
+				foreach_optarg(argc, argv);
+				argv[optind] = NULL;
+				qsort(&argv[k], optind - k, sizeof(char*), p_strcmp);
+				for (i = k, j = k + 1; j < argc; j++){ // remove dups
 					if (strcmp(argv[i], argv[j])){
 						i++;
 						if (i != j)
@@ -95,7 +99,7 @@ void opts(int argc, char* argv[]){
 				}
 				argv[i + 1] = NULL;
 			}
-			err_out(query_select_named_range(&global_r/*, &argv[optind]*/) < 0, ""); // TODO: NULL means everything
+			err_out(query_select_named_range(&global_r/*, &argv[k]*/) < 0, ""); // TODO: NULL means everything
 			break;
 		case 'n': // i[n]sert
 			err_out(range_init(&global_r, optarg) < 0, "");

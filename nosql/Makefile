@@ -1,7 +1,13 @@
 CC = gcc
 CFLAGS = -I.
-HS = file.h options.h sql.h common.h list.h interval_tree.h range.h help.h
-OS = main.o file.o sql.o interval_tree.o range.o
+
+MAINDIR = ..
+MAINDIRHS = file.h sql.h common.h interval_tree.h range.h
+MAINDIROS = main.o file.o interval_tree.o range.o
+THISDIROS = sql.o
+OS = $(addprefix $(MAINDIR)/, $(MAINDIROS))
+HS = $(addprefix $(MAINDIR)/, $(MAINDIRHS))
+
 LIBS = -lpthread
 
 .PHONY: all
