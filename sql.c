@@ -33,24 +33,22 @@
 		(bind).error = g; \
 	} while (0)
 
-static const char* QUERY_SELECT_NAMED_RANGE = "\
-SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Bound, Offset.Conflict \ 
-FROM \
-(((RangeName INNER JOIN RangeFileJunction ON RangeName.RangeId = RangeFileJunction.RangeId) \
-INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
-INNER JOIN Offset ON File.FileId = Offset.FileId) \
-	WHERE RangeName.Name = ? AND RangeName.Init = TRUE\
+static const char* QUERY_SELECT_NAMED_RANGE = " \
+	SELECT File.FileId, File.FilePath, Offset.OffsetId, Offset.Base, Offset.Bound, Offset.Conflict \ 
+	FROM (((RangeName INNER JOIN RangeFileJunction ON RangeName.RangeId = RangeFileJunction.RangeId) \
+		INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
+		INNER JOIN Offset ON File.FileId = Offset.FileId) \
+	WHERE RangeName.Name = ? AND RangeName.Init = TRUE \
 	ORDER BY File.FilePath, Offset.Base LOCK IN SHARE MODE"; // Range.RangeName changed from for share
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
 	"SELECT FileId FROM File WHERE FilePath = ?", // file_path
-	"SELECT OffsetId, Base, Bound, Conflict \
-	FROM Offset \
-	WHERE Offset.FileId = ?" // file_id
+	"SELECT Base, Bound FROM Offset WHERE OffsetId = ?" // cur_id
+	"SELECT Base, Bound, OffsetId, Conflict FROM Offset WHERE Offset.FileId = ?" // file_id
 };
 
 static const char* QUERY_INSERT_NAMED_RANGE[] = {
-	"INSERT INTO RangeName (Name, init) VALUES (?, FALSE)", // insert new range name
+	"INSERT INTO RangeName (Name, Init) VALUES (?, FALSE)", // insert new range name
 	// mysql_insert_id to get rangeId
 	// for each file {
 		"INSERT INTO File (FilePath) VALUES (?)", // insert new file path

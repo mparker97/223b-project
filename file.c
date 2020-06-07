@@ -20,7 +20,7 @@
 char* DEFAULT_START_ORACLE = "[START ORACLE]";
 char* DEFAULT_END_ORACLE = "[END ORACLE]";
 
-char swp_dir[PATH_MAX];
+char swp_dir[PATH_MAX + 1];
 
 static char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
 	char* ret, *s;
