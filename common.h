@@ -18,8 +18,8 @@
 	} while(0)
 #include "sql.h"
 
-#define RANGE_NAME_LEN_MAX
-#define PATH_MAX 3091 // 4095
+#define RANGE_NAME_LEN_MAX 64
+#define PATH_MAX 3072
 #define ORACLE_LEN_MIN 8
 #define ORACLE_LEN_MAX 255
 #define freec(x) do{free(x); x = NULL;} while (0)
