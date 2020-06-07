@@ -23,7 +23,7 @@ CREATE TABLE Range (
 );
 CREATE TABLE File (
 	FileId SERIAL,
-	FilePath VARCHAR(4096) UNIQUE
+	FilePath VARCHAR(3072) UNIQUE
 );
 CREATE TABLE RangeFileJunction (
 	RangeFileJunctionId SERIAL,
