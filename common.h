@@ -7,15 +7,27 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include <stdbool.h>
+#define STR(x) #x
+
+#define _DEBUG
 
 // do while (0) to allow semicolon after
+#ifdef _DEBUG
 #define fail_check(c) \
 	do { \
 		if (!(c)){ \
+			fprintf(stderr, "Assertion (" STR(c) ") Failed\n"); \
 			goto fail; \
 		} \
 	} while (0)
-#define STR(x) #x
+#else
+#define fail_check(c) \
+do { \
+	if (!(c)){ \
+		goto fail; \
+	} \
+} while (0)
+#endif
 #define WIGNORE(x, instrs) \
 	do{ \
 		_Pragma("GCC diagnostic push"); \
