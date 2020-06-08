@@ -1,12 +1,11 @@
 CC = gcc
-CFLAGS = -I.
+CFLAGS = -I. -g
 HS = options.h sql.h common.h list.h interval_tree.h range.h help.h zkclient.h
 OS = main.o sql.o interval_tree.o range.o 
 LIBS = -lmysqlclient -lpthread
 
 
 .PHONY: all
-all: 223b
 
 223b: $(OS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
