@@ -134,7 +134,7 @@ int zk_acquire_lock(it_node_t *context) {
     ts.tv_nsec = (.5)*1000000;
 
     // retry to see if the parent path exists and 
-    // and create if the parent path does not exist
+    // and recursively create all subdirectories if the parent path does not exist
     while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
         count++;
         // retry the operation
@@ -144,7 +144,7 @@ int zk_acquire_lock(it_node_t *context) {
             exists = zoo_create(zh, context->file_path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
         nanosleep(&ts, 0);        
     }
-    if (exists == ZCONNECTIONLOSS) {
+    if (exists != ZOK) {
         return exists;
     }
 
