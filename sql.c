@@ -454,7 +454,7 @@ int query_insert_named_range(struct range* r){
 		fail_check(!mysql_stmt_execute(stmt[3]));
 		it_foreach(&r->files[i].it, p_itn){
 			memcpy(&itn, p_itn, sizeof(struct it_node));
-			if (!mysql_stmt_execute(stmt[4])){
+			if (mysql_stmt_execute(stmt[4])){
 				fprintf(stderr, "Failed to insert interval (%lu, %lu) in file %s\n", itn.base, itn.bound, buf);
 			}
 		}
