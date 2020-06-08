@@ -13,6 +13,7 @@ int zkclient_init();
 
 // FUNCTION DECLARATIONS
 void watcher(zhandle_t *zzh, int type, int state, const char *path, void* context);
+int retry_create(char* znode, struct Stat * stat, struct timespec * ts);
 int zk_release_lock(it_node_t *context);
 int zk_acquire_lock(it_node_t *context);
 
