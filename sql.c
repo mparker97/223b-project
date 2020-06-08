@@ -338,11 +338,13 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	fail_check(!mysql_stmt_execute(stmt[1]));
 	fail_check(!mysql_stmt_store_result(stmt[1]));
 	succ = mysql_stmt_fetch(stmt[1]);
-	fail_check(succ != 1 && succ != MYSQL_NO_DATA);
+	if (cur_id != ID_NONE) {
+		fail_check(succ != 1 && succ != MYSQL_NO_DATA);
 
-	// get base and bound of offset cur_id
-	new_interval.base = base;
-	new_interval.bound = bound;
+		// get base and bound of offset cur_id
+		new_interval.base = base;
+		new_interval.bound = bound;
+	}	
 	
 	fail_check(!mysql_stmt_execute(stmt[2]));
 	fail_check(!mysql_stmt_store_result(stmt[2]));
