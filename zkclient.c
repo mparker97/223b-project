@@ -348,8 +348,6 @@ static int _zk_determine_master_write_lock_eligibility(it_node_t *context, struc
     }
 
     // get all master r/w locks
-    char* znode;
-    char* endptr;
     int currentSeq = getSequenceNumber(context->lock_name);
     int minSeq = currentSeq;
     int nextSmallestSeq = 0;

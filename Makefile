@@ -9,10 +9,12 @@ ZKHS := sql.h interval_tree.h range.h zkclient.h
 ZKOS := zkclient.o
 ZKLIBS := -lpthread -lzookeeper-mt
 
-.PHONY: all
-all: 223b zookeeper
+EXEC := 223b
 
-223b: $(OS) $(ZKOS)
+.PHONY: all zookeeper clean
+all: $(EXEC) zookeeper
+
+$(EXEC): $(OS) $(ZKOS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
 $(OS): %.o: %.c $(HS)
@@ -21,10 +23,8 @@ $(OS): %.o: %.c $(HS)
 $(ZKOS): %.o: %.c $(ZKHS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(ZKLIBS)
 
-.PHONY: zookeeper
 zookeeper: $(ZKOS)
 
-.PHONY: clean
 clean:
 	rm -f ./*.o
-	rm -f 223b
+	rm -f $(EXEC)
