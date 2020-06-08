@@ -568,7 +568,7 @@ static size_t getSequenceNumber(char* lock_name) {
 
     char* endptr;
     errno = 0;
-    size_t ret = strtoul(lock_name, &endptr, 10);
+    size_t ret = strtoul(lock_name+1, &endptr, 10);
     if (errno != 0 || *endptr != 0) 
         return 0;
 
