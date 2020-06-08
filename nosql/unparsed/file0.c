@@ -30,7 +30,7 @@ int main(int argc, char* argv[]){
 			printf("%d\n", a);
 		}
 		/* func 2 section */
-		s = getSomeCharP(argv[2], i);
+		s = getSomeString(argv[2], i);
 		if (s){
 			s = func2(s);
 			printf("%s\n", s);

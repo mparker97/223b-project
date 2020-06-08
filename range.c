@@ -41,7 +41,7 @@ void range_file_deinit(struct range_file* rf){
 
 struct range_file* range_add_file(struct range* r, char* file_path, unsigned long id){
 	struct range_file* rf;
-	char* str;
+	char* str = NULL;
 	if (strlen(file_path) > PATH_MAX)
 		goto fail;
 	if (!(str = strdup(file_path))){

@@ -279,7 +279,7 @@ static int _zk_determine_master_read_lock_eligibility(it_node_t *context, struct
     int currentSeq = strtol(znode, &endptr, 10);
     int minSeq = currentSeq;
     int nextSmallestSeq = 0;
-    char* nextSmallestLock;
+    char* nextSmallestLock = NULL;
 
     for (int i=0; i < master_locks.count; i++) {
         znode = strrchr(master_locks.data[i], '/');
@@ -336,7 +336,7 @@ static int _zk_determine_master_write_lock_eligibility(it_node_t *context, struc
     int currentSeq = strtol(znode, &endptr, 10);
     int minSeq = currentSeq;
     int nextSmallestSeq = 0;
-    char* nextSmallestLock;
+    char* nextSmallestLock = NULL;
 
     for (int i=0; i < master_locks.count; i++) {
         znode = strrchr(znode, '-') + 1;    // shouldn't fail at all
@@ -502,6 +502,7 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
     // set return value
     ret_array->array = interval_array;
     ret_array->len = interval_count;
+	// TODO Thant: return something here
 }
 
 static it_node_t** _sort_interval_locks_by_offset_id(struct String_vector * interval_children) {

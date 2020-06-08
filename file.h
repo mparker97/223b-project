@@ -18,7 +18,7 @@ struct offset_update{
 	size_t backing_start, backing_end, swp_start, swp_end;
 };
 
-void get_path_by_fd(char* path, int fd);
+//int get_path_by_fd(char* path, int fd);
 int pull_swap_file(struct range_file* rf, struct oracles* o);
 int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o);
 void open_files(struct range* r);

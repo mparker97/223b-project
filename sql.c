@@ -303,7 +303,6 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	it_node_t* cur_interval;
 	unsigned long fileId, offsetId;
 	size_t base, bound;
-	unsigned long len;
 	char conflict;
 	char null = false, error;
 	struct l_list *cur_ls = &rf->it;
@@ -405,7 +404,6 @@ int query_insert_named_range(struct range* r){
 	struct it_node* p_itn, itn;
 	unsigned long rangeId, fileId, name_len;
 	char null = false, error;
-	unsigned long path_len;
 	
 	name_len = strlen(r->name);
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
@@ -482,9 +480,9 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn, itn;
-	struct offset_update* ou;
+	struct offset_update* ou = NULL;
 	unsigned long db_base, db_bound;
-	int succ, release_count = 0, zk_released = 0;
+	int succ, release_count = 0;
 	char null = false, error;
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId

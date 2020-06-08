@@ -32,21 +32,22 @@ static char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute
 	return ret;
 }
 
-void get_path_by_fd(char* path, int fd){
+static int get_path_by_fd(char* path, int fd){
 	char buf[32];
     snprintf(buf, 32, "/proc/self/fd/%d", fd);
-	path = realpath(buf, NULL);
+	if (realpath(buf, path)){
+		return 1;
+	}
+	return 0;
 }
 
 static void unlink_by_fd(int fd){
-	char* path = NULL;
-	get_path_by_fd(path, fd);
-	if (!path){
+	char path[PATH_MAX + 1];
+	if (!get_path_by_fd(path, fd)){
 		fprintf(stderr, "Failed to unlink fd %d\n", fd);
 	}
 	else{
 		unlink(path);
-		free(path);
 	}
 }
 
@@ -154,7 +155,7 @@ fail:
 		// successfully read - release master read lock
 		zk_release_lock(&zkcontext);
 	}
-	if (swp_fd >= 0);
+	if (swp_fd >= 0)
 		close(swp_fd);
 	if (s)
 		free(s);
@@ -162,7 +163,7 @@ fail:
 }
 
 int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
-	int ret = 0, backing_fd, i = 0;
+	int ret = 0, backing_fd = -1, i = 0;
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -o->oracle_len[1];//, total_change = 0;
 	
@@ -214,7 +215,8 @@ int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
 rexec:
 	ret = -2;
 pass:
-	close(backing_fd);
+	if (backing_fd > 0)
+		close(backing_fd);
 	zk_release_lock(&zkcontext);
 	return ret;
 }
@@ -247,7 +249,7 @@ struct open_files_thread{
 };
 
 static void* thd_open_files(void* arg){
-	char path[PATH_MAX];
+	char path[PATH_MAX + 1];
 	struct open_files_thread* oft = (struct open_files_thread*)arg;
 	struct oracles o;
 	int i, swp_fd;
@@ -256,8 +258,7 @@ static void* thd_open_files(void* arg){
 		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
 		goto fail;
 	}
-	get_path_by_fd(path, swp_fd);
-	if (!path){
+	if (!get_path_by_fd(path, swp_fd)){
 		fprintf(stderr, "Failed to resolve swap file path for %s\n", oft->rf->file_path);
 		goto fail;
 	}
@@ -277,7 +278,7 @@ fail:
 }
 
 void open_files(struct range* r){
-	int i, j;
+	int i;
 	struct open_files_thread* thds = malloc(r->num_files * sizeof(struct open_files_thread));
 	void* retval;
 	err_out(!thds, "Malloc open files threads failed\n");

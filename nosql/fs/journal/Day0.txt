@@ -1,0 +1,31 @@
+SHARED JOURNAL; DAY 0
+
+Alice (ID 0):
+Hello, my name is Alice. Today, I exchanged keys with Bob, and now we can talk secretly!
+I can't wait for us to share stories in private!
+
+Bob (ID 1):
+Hi, I'm Bob, but you can call be "Robert" for short.
+I've been talking with Alice regarding cryptography.
+It's pretty neat.
+
+Charlie (ID 2):
+Greetings. This is Charlie speaking.
+I've always been a journaler, so hearing about this new shared journal thing was exciting!
+I can't wait to see how well it works.
+Oh, I also like ASCII art:
+
+			 _____ _                _ _      
+			/  __ \ |              | (_)     
+			| /  \/ |__   __ _ _ __| |_  ___ 
+			| |   | '_ \ / _` | '__| | |/ _ \
+			| \__/\ | | | (_| | |  | | |  __/
+			\_____/_| |_|\__,_|_|  |_|_|\___|
+
+Dave (ID 3):
+Day 0, 7:00am. Calm and cool weather, dew on the grass. No sign of intelligent life.
+David here. Welcome to the Outback.
+I've discovered this program that lets me edit files with others. I'm now partaking in a shared journal.
+Let's hope this software isn't total crud.
+
+END SHARED JOURNAL

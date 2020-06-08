@@ -19,11 +19,10 @@ struct range global_r;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
 char** p_exe_path;
-static char mode = 0;
 
 void get_range(size_t* base, size_t* bound, char* str){
 	*base = atol(str);
-	if (str = strchr(str, ',')){
+	if ((str = strchr(str, ','))){
 		if (str[1]){
 			*bound = atol(str + 1);
 			err_out(*bound <= *base, "Invalid region: base %lu, bound %lu\n", *base, *bound);
@@ -70,7 +69,6 @@ void opts(int argc, char* argv[]){
 	struct range_file** fs = NULL;
 	void* retval;
 	char* buf = "+f:\0+r:";
-	char** s_ptr;
 	pthread_t* thds = NULL;
 	int i = 0, j, k, l;
 	char c = getopt(argc, argv, "+g:hn:pr:w:");
