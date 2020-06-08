@@ -358,7 +358,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 			printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 		}
 		cur_interval = malloc(sizeof(it_node_t));
-		fail_check(cur_interval == NULL);
+		fail_check(cur_interval != NULL);
 		cur_interval->ls = L_LIST_NULL;
 		cur_interval->base = base;
 		cur_interval->bound = bound;
