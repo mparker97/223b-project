@@ -180,7 +180,12 @@ int zk_acquire_lock(it_node_t *context) {
 
     // create subnode .../foo/interval if it doesn’t exist before
     char subfolder_path[lock_subfolder_len];
-    sprintf(subfolder_path, "%s/interval", context->file_path);
+    if (context->lock_type == LOCK_TYPE_INTERVAL) {
+        sprintf(subfolder_path, "%s/interval", context->file_path);
+    }
+    else {
+        sprintf(subfolder_path, "%s/master", context->file_path); 
+    }
     exists = retry_create(subfolder_path, &ts);
     if (exists == ZCONNECTIONLOSS) {
         return exists;
