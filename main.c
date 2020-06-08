@@ -168,11 +168,11 @@ skip_add_file:;
 			}
 			free(fs);
 			err_out(!i, "No file specified\n");
-			if (query_insert_named_range(&global_r) < ){
-				fprintf(stderr, "Failed to insert range \"%s\"\n", global_r->name);
+			if (query_insert_named_range(&global_r) < 0){
+				fprintf(stderr, "Failed to insert range \"%s\"\n", global_r.name);
 			}
 			else{
-				fprintf(stderr, "Range \"%s\" inserted successfully\n", global_r->name);
+				fprintf(stderr, "Range \"%s\" inserted successfully\n", global_r.name);
 			}
 			break;
 		case 'p': // [p]rint
