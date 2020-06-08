@@ -125,34 +125,36 @@ int zk_release_lock(it_node_t *context) {
 	return ZSYSTEMERROR;
 }
 
-int retry_create(char* znode, struct Stat * stat, struct timespec * ts) {
-    // retry to see if the parent path exists and 
-    // and recursively create all subdirectories2 if the parent path does not exist
-    int exists = zoo_exists(zh, znode, 0, stat);
+int retry_create(char* znode, struct timespec * ts) {
+    struct Stat stat;
+    int exists = zoo_exists(zh, znode, 0, &stat);
     int count = 0;
     while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
         count++;
         // retry the operation
         if (exists == ZCONNECTIONLOSS) 
-            exists = zoo_exists(zh, znode, 0, stat);
+            exists = zoo_exists(zh, znode, 0, &stat);
         else if (exists == ZNONODE) 
             exists = zoo_create(zh, znode, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
         nanosleep(ts, 0);        
     }
+
+    return exists;
 }
 
 int zk_acquire_lock(it_node_t *context) {
-    struct Stat stat;
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = (.5)*1000000;
     int exists;
+
+    // retry to see if the parent path exists and 
+    // and recursively create all subdirectories2 if the parent path does not exist
     char* slashptr = context->file_path;
-    
     while ((slashptr = strchr(slashptr, '/')) != NULL) {
         // temporarily change / to \0 
         *slashptr = 0;
-        exists = retry_create(context->file_path, &stat, &ts);
+        exists = retry_create(context->file_path, &ts);
         if (exists != ZOK) {
             return exists;
         }
@@ -174,26 +176,18 @@ int zk_acquire_lock(it_node_t *context) {
         // 7 for "/master" and 1 for '\0'
         lock_subfolder_len += 8;
     }
+
     // create subnode .../foo/interval if it doesn’t exist before
     char subfolder_path[lock_subfolder_len];
     sprintf(subfolder_path, "%s/interval", context->file_path);
-    exists = zoo_exists(zh, subfolder_path, 0, &stat);
-    int count = 0;
-    while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
-        count++;
-        if (exists == ZCONNECTIONLOSS) 
-            exists = zoo_exists(zh, subfolder_path, 0, &stat);
-        else if (exists == ZNONODE) 
-            exists = zoo_create(zh, subfolder_path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
-        nanosleep(&ts, 0);
-    }
+    exists = retry_create(subfolder_path, &ts);
     if (exists == ZCONNECTIONLOSS) {
         return exists;
     }
 
     // attempt actual lock creation
     int check_retry = ZCONNECTIONLOSS;
-    count = 0;
+    int count = 0;
     while (check_retry != ZOK && count < 3) {
         if (context->lock_type == LOCK_TYPE_INTERVAL) {
             check_retry = _zk_interval_lock_operation(context, &ts);
