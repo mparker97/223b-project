@@ -234,7 +234,7 @@ int query_select_named_range(struct range* r){ // range already has r->name
 			break;
 		}
 		buf[path_len] = 0;
-		if (!strncmp(old_buf, buf, len)){ // different file; add it
+		if (strncmp(old_buf, buf, len)){ // different file; add it
 			memcpy(old_buf, buf, len);
 			old_buf[len + 1] = 0;
 			rf = range_add_file(r, old_buf, fileId);
