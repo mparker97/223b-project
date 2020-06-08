@@ -362,12 +362,20 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 		cur_interval->bound = bound;
 		cur_interval->id = offsetId;
 
-		if (it_intersect(&new_interval, cur_interval)) {
+		// used for printing
+		if (cur_id == ID_NONE) {
 			l_list_add_after(cur_ls, &(cur_interval->ls));
 			cur_ls = &(cur_interval->ls);
 		}
+		// used for interval locks
 		else {
-			free(cur_interval);
+			if (it_intersect(&new_interval, cur_interval)) {
+				l_list_add_after(cur_ls, &(cur_interval->ls));
+				cur_ls = &(cur_interval->ls);
+			}
+			else {
+				free(cur_interval);
+			}
 		}
 	}
 	TXN_COMMIT;
