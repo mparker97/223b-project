@@ -1,6 +1,5 @@
 #ifndef SQL_H
 #define SQL_H
-#include "file.h"
 
 struct range;
 struct range_file;
@@ -14,6 +13,7 @@ int query_select_named_range(struct range* r);
 int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id);
 int query_insert_named_range(struct range* r);
 int query_resize_file(struct range_file* f, int swp_fd, int backing_fd, struct oracles* o);
+#include "file.h"
 
 /* SCHEMA:
 CREATE TABLE Range (
