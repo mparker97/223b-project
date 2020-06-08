@@ -166,10 +166,10 @@ bool pps(MYSQL_STMT** ret, const char* query, MYSQL_BIND* in, MYSQL_BIND* out){ 
 	fail_check(!mysql_stmt_prepare(stmt, query, strlen(query)));
 	*ret = stmt;
 	if (in){
-		fail_check(mysql_stmt_bind_param(stmt, in));
+		fail_check(!mysql_stmt_bind_param(stmt, in));
 	}
 	if (out){
-		fail_check(mysql_stmt_bind_result(stmt, out));
+		fail_check(!mysql_stmt_bind_result(stmt, out));
 	}
 	return true;
 fail:

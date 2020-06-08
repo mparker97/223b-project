@@ -155,7 +155,7 @@ skip_add_file:;
 					buf -= 4;
 				}
 				else{ // -f
-					j = 0;
+					j = optind;
 					foreach_optarg(argc, argv){
 						fs[j] = (struct range_file*)(argv[j]);
 						j++;
