@@ -23,14 +23,14 @@ int main(int argc, char* argv[]){
 		This is my beautiful procedure!
 	*/
 	for (i = 0; i < 10; i++){ // run 10 times
-		/* func 1 section*/
-		a = getSomeInt(argv[1], i);
+		/* func 1 section*/
+		a = getSomeInt(argv[1], i);
 		if (a < 12){
 			a = func1(a);
 			printf("%d\n", a);
 		}
-		/* func 2 section */
-		s = getSomeString(argv[2], i);
+		/* func 2 section */
+		s = getSomeString(argv[2], i);
 		if (s){
 			s = func2(s);
 			printf("%s\n", s);

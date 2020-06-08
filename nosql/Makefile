@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 CC := gcc
-CFLAGS := -I.
+CFLAGS := -I. -g -O -Wall -Wno-unused-function -Wno-unused-result
 
 MAINDIR := ..
 MAINDIRHS := file.h sql.h common.h interval_tree.h range.h
@@ -13,10 +13,11 @@ HS := $(addprefix $(MAINDIR)/, $(MAINDIRHS))
 LIBS := -lpthread
 
 BYTEOFFSETS := bo
+RANGEFILE := range
 FSDIR := fs
 UNPARSEDDIR := unparsed
 
-.PHONY: all parse byte-offsets
+.PHONY: all parse parse-files byte-offsets
 all: 223b parse
 
 223b: $(OS)
@@ -26,16 +27,10 @@ $(OS): %.o: %.c $(HS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS)
 
 parse: byte-offsets parse-files
-#parse-files: $(UNPARSEDDIR)/*
-#	rm -rf $(FSDIR)
-#	mkdir $(FSDIR)
-#	@for a in $(notdir $^); do \
-#		echo $$a:; \
-#		cat $(UNPARSEDDIR)/$$a | ./$(BYTEOFFSETS) > $(FSDIR)/$$a; \
-#		echo; \
-#	done
+
 parse-files: $(shell find $(UNPARSEDDIR))
 	rm -rf $(FSDIR)
+	rm -rf $(RANGEFILE)
 	@for a in $^; do \
 		b=$${a/$(UNPARSEDDIR)/$(FSDIR)}; \
 		if [ -d $$a ]; then \
@@ -49,10 +44,11 @@ parse-files: $(shell find $(UNPARSEDDIR))
 
 byte-offsets: $(BYTEOFFSETS)
 $(BYTEOFFSETS): %: %.c
-	$(CC) -o $@ $<
+	$(CC) -o $@ $< $(CFLAGS)
 
 .PHONY: clean
 clean:
 	rm -f ./*.o
 	rm -f 223b
 	rm -f $(BYTEOFFSETS)
+	rm -f $(RANGEFILE)
