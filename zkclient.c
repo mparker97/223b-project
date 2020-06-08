@@ -472,6 +472,7 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
 
     // get intervals from mysql for this file conflicting with new_interval
     struct range_file rf;
+    it_init(&rf.it);
     ret = query_select_file_intervals(&rf, context->file_path, context->id);
     if (ret == -1) {
         return ret;
