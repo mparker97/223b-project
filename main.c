@@ -155,9 +155,9 @@ skip_add_file:;
 					buf -= 4;
 				}
 				else{ // -f
-					j = optind;
+					j = 0;
 					foreach_optarg(argc, argv){
-						fs[j-optind] = (struct range_file*)(argv[j]);
+						fs[j] = (struct range_file*)(argv[optind]);
 						j++;
 					}
 					err_out(!j, "-f flag without file\n");
