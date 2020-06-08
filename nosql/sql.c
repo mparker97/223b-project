@@ -7,17 +7,34 @@
 #include "../interval_tree.h"
 #include "../range.h"
 
-// do while (0) to allow semicolon after
-#define fail_check(c) \
-	do { \
-		if (!(c)){ \
-			goto fail; \
-		} \
-	} while (0)
+static struct range my_range;
 
-int make_my_range(struct range* r, char* name){
+int make_my_range(char* name){
+	struct range_file* rf;
+	fail_check(range_init(&my_range, name) >= 0);
 	
+	rf = range_add_new_file(&my_range, "/home/ubuntu/223b-project/nosql/fs/file0.c");
+	fail_check(rf);
+	fail_check(range_file_add_it(rf, 21, , ID_NONE));
+	fail_check(range_file_add_it(rf, , , ID_NONE));
+	fail_check(range_file_add_it(rf, , , ID_NONE));
+	
+	rf = range_add_new_file(&my_range, "/home/ubuntu/223b-project/nosql/fs/file1.c");
+	fail_check(rf);
+	fail_check(range_file_add_it(rf, 0, 100, ID_NONE));
+	
+	rf = range_add_new_file(&my_range, "/home/ubuntu/223b-project/nosql/fs/file2.c");
+	fail_check(rf);
+	fail_check(range_file_add_it(rf, 15, 45, ID_NONE));
+	fail_check(range_file_add_it(rf, 25, 35, ID_NONE));
+	
+	return 0;
+fail:
+	return -1;
 }
+
+int sql_init(){}
+void sql_end(){}
 
 int query_select_named_range(struct range* r){ // range already has r->name
 	
@@ -29,7 +46,6 @@ pass:
 }
 
 int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
-	
 	do_print_file(rf);
 	goto pass;
 fail:
@@ -48,8 +64,9 @@ pass:
 }
 
 int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
+	int ret = 0, i;
 	struct it_node* p_itn;
-	int i;
+	struct offset_update* ou;
 	ou = malloc(rf->num_it * sizeof(struct offset_update));
 	fail_check(ou);
 

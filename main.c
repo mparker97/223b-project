@@ -74,10 +74,19 @@ void opts(int argc, char* argv[]){
 	pthread_t* thds = NULL;
 	int i = 0, j, k, l;
 	char c = getopt(argc, argv, "+g:hn:pr:w:");
+	if (c == 'h'){ // [h]elp
+		print_help(argv[0]);
+		err(0);
+	}
+	// if not help, do init
+	err_out(!getcwd(swp_dir, PATH_MAX)
+		|| sql_init() < 0
+		|| pthread_mutex_init(&print_lock, NULL)
+		|| zkclient_init() < 0,
+		"Failed to initialize\n");
+	it_init(&global_rf.it);
+	
 	switch (c){
-		case 'h': // [h]elp
-			print_help(argv[0]);
-			break;
 		case 'r': // [r]ead
 		case 'w': // [w]rite
 			err_out(range_init(&global_r, optarg) < 0, "");
@@ -210,12 +219,6 @@ int main(int argc, char* argv[]){
 		print_usage(argv[0]);
 		err(0);
 	}
-	err_out(!getcwd(swp_dir, PATH_MAX)
-		|| sql_init() < 0
-		|| pthread_mutex_init(&print_lock, NULL)
-		|| zkclient_init() < 0,
-		"Failed to initialize\n");
-	it_init(&global_rf.it);
 	opts(argc, argv);
 	err(0);
 }
