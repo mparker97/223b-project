@@ -562,7 +562,7 @@ static char* getLockName(char* str) {
  * get the sequence number from the lock_name returned from zookeeper
  */
 static size_t getSequenceNumber(char* lock_name) {
-    lock_name = strrchr(lock_name, '/');
+    lock_name = strrchr(lock_name, '-');
     if (lock_name == NULL) 
         return 0;
 
