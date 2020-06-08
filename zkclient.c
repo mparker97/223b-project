@@ -125,25 +125,42 @@ int zk_release_lock(it_node_t *context) {
 	return ZSYSTEMERROR;
 }
 
-int zk_acquire_lock(it_node_t *context) {
-    struct Stat stat;
-    int exists = zoo_exists(zh, context->file_path, 0, &stat);
-    int count = 0;
-    struct timespec ts;
-    ts.tv_sec = 0;
-    ts.tv_nsec = (.5)*1000000;
-
+int retry_create(char* znode, struct timespec * ts) {
     // retry to see if the parent path exists and 
-    // and recursively create all subdirectories if the parent path does not exist
+    // and recursively create all subdirectories2 if the parent path does not exist
+    struct Stat stat;
+    int exists = zoo_exists(zh, znode, 0, &stat);
+    int count = 0;
     while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
         count++;
         // retry the operation
         if (exists == ZCONNECTIONLOSS) 
-            exists = zoo_exists(zh, context->file_path, 0, &stat);
+            exists = zoo_exists(zh, znode, 0, &stat);
         else if (exists == ZNONODE) 
-            exists = zoo_create(zh, context->file_path, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
-        nanosleep(&ts, 0);        
+            exists = zoo_create(zh, znode, NULL, 0, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
+        nanosleep(ts, 0);        
     }
+}
+
+int zk_acquire_lock(it_node_t *context) {
+    struct timespec ts;
+    ts.tv_sec = 0;
+    ts.tv_nsec = (.5)*1000000;
+    int exists;
+    char* slashptr = context->file_path;
+    
+    while ((slashptr = strchr(slashptr, '/')) != NULL) {
+        // temporarily change / to \0 
+        *slashptr = 0;
+        exists = retry_create(context->file_path, &ts);
+        if (exists != ZOK) {
+            return exists;
+        }
+        *slashptr = '/';
+        slashptr++;
+    }
+    // for full path 
+    exists = retry_create(context->file_path, &ts);
     if (exists != ZOK) {
         return exists;
     }
@@ -161,7 +178,7 @@ int zk_acquire_lock(it_node_t *context) {
     char subfolder_path[lock_subfolder_len];
     sprintf(subfolder_path, "%s/interval", context->file_path);
     exists = zoo_exists(zh, subfolder_path, 0, &stat);
-    count = 0;
+    int count = 0;
     while ((exists == ZCONNECTIONLOSS || exists == ZNONODE) && (count < 3)) {
         count++;
         if (exists == ZCONNECTIONLOSS) 
@@ -502,7 +519,8 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
     // set return value
     ret_array->array = interval_array;
     ret_array->len = interval_count;
-	// TODO Thant: return something here
+	
+    return ZOK;
 }
 
 static it_node_t** _sort_interval_locks_by_offset_id(struct String_vector * interval_children) {
