@@ -150,7 +150,8 @@ int zk_acquire_lock(it_node_t *context) {
 
     // retry to see if the parent path exists and 
     // and recursively create all subdirectories2 if the parent path does not exist
-    char* slashptr = context->file_path;
+    // skip the first root directory /
+    char* slashptr = context->file_path + 1;
     while ((slashptr = strchr(slashptr, '/')) != NULL) {
         // temporarily change / to \0 
         *slashptr = 0;
