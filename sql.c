@@ -236,7 +236,7 @@ int query_select_named_range(struct range* r){ // range already has r->name
 		buf[path_len] = 0;
 		if (strncmp(old_buf, buf, path_len)){ // different file; add it
 			memcpy(old_buf, buf, path_len);
-			old_buf[len + 1] = 0;
+			old_buf[path_len + 1] = 0;
 			rf = range_add_file(r, old_buf, fileId);
 			fail_check(rf);
 		}
