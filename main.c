@@ -184,7 +184,7 @@ skip_add_file:;
 				switch (c){
 					case 'f':
 						foreach_optarg(argc, argv){
-							if (!pthread_create(&thds[i], NULL, thd_pfile, argv[optind])){
+							if (pthread_create(&thds[i], NULL, thd_pfile, argv[optind])){
 								fprintf(stderr, "Failed to create file print thread %d\n", i);
 							}
 							i++;
@@ -193,7 +193,7 @@ skip_add_file:;
 					case 'g':
 					case 'r':
 						foreach_optarg(argc, argv){
-							if (!pthread_create(&thds[i], NULL, thd_prange, argv[optind])){
+							if (pthread_create(&thds[i], NULL, thd_prange, argv[optind])){
 								fprintf(stderr, "Failed to create range print thread %d\n", i);
 							}
 							i++;
