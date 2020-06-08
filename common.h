@@ -7,6 +7,14 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include <stdbool.h>
+
+// do while (0) to allow semicolon after
+#define fail_check(c) \
+	do { \
+		if (!(c)){ \
+			goto fail; \
+		} \
+	} while (0)
 #define STR(x) #x
 #define WIGNORE(x, instrs) \
 	do{ \
