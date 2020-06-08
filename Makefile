@@ -11,7 +11,7 @@ ZKLIBS = -lpthread
 .PHONY: all
 all: 223b zookeeper
 
-223b: $(OS)
+223b: $(OS) $(ZKOS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
 $(OS): %.o: %.c $(HS)
