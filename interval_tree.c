@@ -10,7 +10,7 @@ void it_init(struct l_list* it){
 void it_deinit(struct l_list* it){
 	struct it_node* p;
 	while (it->next){
-		p = container_of(&it->next, struct it_node, ls);
+		p = container_of(it->next, struct it_node, ls);
 		it->next = it->next->next;
 		free(p);
 	}
