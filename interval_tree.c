@@ -11,7 +11,7 @@ void it_deinit(struct l_list* it){
 	struct it_node* p;
 	while (it->next){
 		p = container_of(&it->next, struct it_node, ls);
-		it->next = &p->ls;
+		it->next = it->next->next;
 		free(p);
 	}
 	*it = L_LIST_NULL;
