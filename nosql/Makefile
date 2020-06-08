@@ -5,7 +5,7 @@ MAINDIR = ..
 MAINDIRHS = file.h sql.h common.h interval_tree.h range.h
 MAINDIROS = main.o file.o interval_tree.o range.o
 THISDIROS = sql.o
-OS = $(addprefix $(MAINDIR)/, $(MAINDIROS))
+OS = $(addprefix $(MAINDIR)/, $(MAINDIROS)) $(THISDIROS)
 HS = $(addprefix $(MAINDIR)/, $(MAINDIRHS))
 
 LIBS = -lpthread
