@@ -54,7 +54,7 @@ void* thd_pfile(void* arg){
 	struct range_file rf;
 	char* name = (char*)arg;
 	it_init(&rf.it);
-	if (query_select_file_intervals(&rf, name, 0) >= 0){
+	if (query_select_file_intervals(&rf, name, ID_NONE) >= 0){
 		do_print_file(&rf);
 	}
 	else{
@@ -168,7 +168,12 @@ skip_add_file:;
 			}
 			free(fs);
 			err_out(!i, "No file specified\n");
-			query_insert_named_range(&global_r);
+			if (query_insert_named_range(&global_r) < ){
+				fprintf(stderr, "Failed to insert range \"%s\"\n", global_r->name);
+			}
+			else{
+				fprintf(stderr, "Range \"%s\" inserted successfully\n", global_r->name);
+			}
 			break;
 		case 'p': // [p]rint
 			thds = malloc(argc * sizeof(pthread_t));
