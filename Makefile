@@ -12,9 +12,9 @@ ZKLIBS := -lpthread -lzookeeper-mt
 EXEC := 223b
 
 .PHONY: all zookeeper clean
-all: $(EXEC) zookeeper
+all: $(EXEC)
 
-$(EXEC): $(OS)
+$(EXEC): $(OS) $(ZKOS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
 $(OS): %.o: %.c $(HS)

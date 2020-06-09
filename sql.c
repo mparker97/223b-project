@@ -356,20 +356,17 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 		if (conflict){
 			printf("warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 		}
-		cur_interval = malloc(sizeof(it_node_t));
-		fail_check(cur_interval != NULL);
-		cur_interval->ls = L_LIST_NULL;
-		cur_interval->base = base;
-		cur_interval->bound = bound;
-		cur_interval->id = offsetId;
 
-		// used for printing
-		if (cur_id == ID_NONE) {
-			l_list_add_after(cur_ls, &(cur_interval->ls));
-			cur_ls = &(cur_interval->ls);
+		if (cur_id == ID_NONE) { // used for printing
+			fail_check(it_insert(&rf->it, base, bound, offsetId));
 		}
-		// used for interval locks
-		else {
+		else { // used for interval locks
+			cur_interval = calloc(1, sizeof(it_node_t));
+			fail_check(cur_interval != NULL);
+			cur_interval->ls = L_LIST_NULL;
+			cur_interval->base = base;
+			cur_interval->bound = bound;
+			cur_interval->id = offsetId;
 			if (it_intersect(&new_interval, cur_interval)) {
 				l_list_add_after(cur_ls, &(cur_interval->ls));
 				cur_ls = &(cur_interval->ls);

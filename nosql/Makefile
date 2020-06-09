@@ -22,20 +22,22 @@ RANGEID = 1
 
 EXEC := 223b
 
-.PHONY: all exec_helper returnhs test parse parse-files byte-offsets cleanfs clean
-all: $(EXEC) parse
+.PHONY: all exec_helper sendhs returnhs test parse parse-files byte-offsets cleanfs clean
 
-$(EXEC): exec_helper returnhs
+$(EXEC): sendhs exec_helper returnhs
+
+all: $(EXEC) parse
 exec_helper: $(OS)
 	$(CC) -o $(EXEC) $^ $(CFLAGS) $(LIBS)
 $(OS): %.o: %.c $(HS)
+	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS) || ($(MAKE) returnhs && false)
+
+sendhs: $(THISDIRHS)
 	@for a in $(THISDIRHS); do \
 		echo moving $$a to main directory; \
 		mv $(MAINDIR)/$$a $(MAINDIR)/.$$a 2>/dev/null; \
 		cp $$a $(MAINDIR)/$$a; \
 	done
-	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS) || $(MAKE) returnhs
-
 returnhs: $(THISDIRHS)
 	@for a in $(THISDIRHS); do \
 		if [ -a $(MAINDIR)/.$$a ]; then \
@@ -46,7 +48,8 @@ returnhs: $(THISDIRHS)
 
 # For example: make test CMD=-g RANGEID=2
 test: $(EXEC)
-	@sed -n $(RANGEID)p $(RANGEFILE) | xargs ./$(EXEC) $(CMD)
+	$(eval a=$(shell sed -n $(RANGEID)p $(RANGEFILE)))
+	./$(EXEC) $(CMD) $a
 
 parse: byte-offsets parse-files
 

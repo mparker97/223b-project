@@ -26,12 +26,12 @@ inline int it_intersect(struct it_node* a, struct it_node* b){
 struct it_node* it_insert_new(int* new, struct l_list* it, size_t base, size_t bound, unsigned long id){ // not at all thread safe
 	struct it_node* p_itn, *p_f;
 	struct l_list* save = it;
-	struct it_node f = (struct it_node){
-		.ls = L_LIST_NULL,
-		.id = id,
-		.base = base,
-		.bound = bound,
-	};
+	struct it_node f;
+	memset(&f, 0, sizeof(struct it_node));
+	f.ls = L_LIST_NULL;
+	f.id = id;
+	f.base = base;
+	f.bound = bound;
 	*new = 0;
 	p_f = &f;
 	it_foreach(it, p_itn){
