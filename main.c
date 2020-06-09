@@ -97,7 +97,7 @@ void opts(int argc, char* argv[]){
 				foreach_optarg(argc, argv);
 				argv[optind] = NULL;
 				qsort(&argv[k], optind - k, sizeof(char*), p_strcmp);
-				for (i = k, j = k + 1; j < argc; j++){ // remove dups
+				for (i = k, j = k + 1; j < optind; j++){ // remove dups
 					if (strcmp(argv[i], argv[j])){
 						i++;
 						if (i != j)

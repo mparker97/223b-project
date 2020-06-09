@@ -37,7 +37,7 @@ void sql_end(){}
 
 int query_select_named_range(struct range* r){ // range already has r->name
 	int ret = 0;
-	fail_check(make_range(r) < 0);
+	fail_check(make_range(r) >= 0);
 	printf("Range constructed successfully\n");
 	goto pass;
 fail:
