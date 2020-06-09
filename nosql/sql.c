@@ -11,7 +11,7 @@
 
 // Range00 -f fs/file0.c -r 21,55 354,439 -f fs/file1.c -r 40,142 -f fs/journal/Day0.txt -r 37,174
 
-int make_range(struct range* r){
+static int make_range(struct range* r){
 	struct range_file* rf;
 	
 	rf = range_add_new_file(r, "/home/ubuntu/223b-project/nosql/fs/file0.c", ID_NONE);
@@ -35,10 +35,11 @@ fail:
 int sql_init(){return 0;}
 void sql_end(){}
 
-int query_select_named_range(struct range* r){ // range already has r->name
+int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
 	int ret = 0;
 	fail_check(make_range(r) >= 0);
 	printf("Range constructed successfully\n");
+	open_files(r);
 	goto pass;
 fail:
 	ret = -1;

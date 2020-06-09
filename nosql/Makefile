@@ -21,6 +21,7 @@ CMD = -h
 RANGEID = 1
 
 EXEC := 223b
+TEXTEXEC := cat
 
 .PHONY: all exec_helper sendhs returnhs test parse parse-files byte-offsets cleanfs clean
 
@@ -49,7 +50,8 @@ returnhs: $(THISDIRHS)
 # For example: make test CMD=-g RANGEID=2
 test: $(EXEC)
 	$(eval a=$(shell sed -n $(RANGEID)p $(RANGEFILE)))
-	./$(EXEC) $(CMD) $a
+	$(eval TEXTEXEC=$(shell which $(TEXTEXEC)))
+	./$(EXEC) $(CMD) $a -e $(TEXTEXEC)
 
 parse: byte-offsets parse-files
 

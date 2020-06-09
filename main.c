@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include "options.h"
 #include "file.h"
 #include "sql.h"
 #include "common.h"
@@ -37,8 +38,9 @@ void get_range(size_t* base, size_t* bound, char* str){
 void* thd_prange(void* arg){
 	struct range r;
 	char* name = (char*)arg;
+	char* null_p = NULL;
 	if (range_init(&r, name) >= 0){
-		if (query_select_named_range(&r) >= 0){
+		if (query_select_named_range(&r, &null_p, 0) >= 0){
 			do_print_range(&r);
 		}
 		else{
@@ -78,8 +80,9 @@ void opts(int argc, char* argv[]){
 	}
 	// if not help, do init
 	err_out(!getcwd(swp_dir, PATH_MAX)
-		|| sql_init() < 0
 		|| pthread_mutex_init(&print_lock, NULL)
+		|| options_file_init() < 0
+		|| sql_init() < 0
 		|| zkclient_init() < 0,
 		"Failed to initialize\n");
 	it_init(&global_rf.it);
@@ -88,25 +91,25 @@ void opts(int argc, char* argv[]){
 		case 'r': // [r]ead
 		case 'w': // [w]rite
 			err_out(range_init(&global_r, optarg) < 0, "");
-			if (!strncmp(argv[optind], "-f", 2)){
-				optind++;
-			}
-			
-			k = optind;
-			if (optind < argc){
-				foreach_optarg(argc, argv);
-				argv[optind] = NULL;
-				qsort(&argv[k], optind - k, sizeof(char*), p_strcmp);
-				for (i = k, j = k + 1; j < optind; j++){ // remove dups
-					if (strcmp(argv[i], argv[j])){
-						i++;
-						if (i != j)
-							strcpy(argv[i], argv[j]);
-					}
+			for (; optind < argc && !strcmp(argv[optind], "-f"); optind++); // exhaust through -f
+			err_out(optind >= argc, "-%c mode requires an executable\n", c);
+			k = optind; // k is the position of first file
+			foreach_optarg(argc, argv); // exhaust through files
+			l = optind; // r is the position after last file
+			for (; optind < argc && strcmp(argv[optind], "-e"); optind++); // search for -e
+			err_out(optind >= argc - 1, "-%c mode requires an executable\n", c);
+			p_exe_path = &argv[optind + 1];
+			argv[l] = NULL;
+			qsort(&argv[k], l - k, sizeof(char*), p_strcmp);
+			for (i = k, j = k + 1; j < l; j++){ // remove dups
+				if (strcmp(argv[i], argv[j])){
+					i++;
+					if (i != j)
+						strcpy(argv[i], argv[j]);
 				}
-				argv[i + 1] = NULL;
 			}
-			err_out(query_select_named_range(&global_r/*, &argv[k]*/) < 0, ""); // TODO: NULL means everything
+			argv[i + 1] = NULL; // cut off after last file after removing dups
+			err_out(query_select_named_range(&global_r, &argv[k], 1) < 0, ""); // TODO: NULL means everything
 			break;
 		case 'n': // i[n]sert
 			err_out(range_init(&global_r, optarg) < 0, "");

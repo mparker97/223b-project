@@ -130,6 +130,7 @@ static const char* QUERY_RESIZE_FILE[] = {
 		WHERE FileId = ?" // fileId
 	// }
 };
+
 static MYSQL mysql;
 
 int sql_init(){
@@ -160,10 +161,10 @@ void sql_end(){
 	mysql_library_end();
 }
 
-bool pps(MYSQL_STMT** ret, const char* query, MYSQL_BIND* in, MYSQL_BIND* out){ // prepare prepared statement; mysql_stmt_close return value if not NULL
+static bool pps_len(MYSQL_STMT** ret, const char* query, MYSQL_BIND* in, MYSQL_BIND* out, size_t len){ // prepare prepared statement; mysql_stmt_close return value if not NULL
 	MYSQL_STMT* stmt;
 	fail_check(stmt = mysql_stmt_init(&mysql));
-	fail_check(!mysql_stmt_prepare(stmt, query, strlen(query)));
+	fail_check(!mysql_stmt_prepare(stmt, query, len));
 	*ret = stmt;
 	if (in){
 		fail_check(!mysql_stmt_bind_param(stmt, in));
@@ -176,7 +177,10 @@ fail:
 	return false;
 }
 
-void stmt_errors(MYSQL_STMT** stmt, int n){
+#define pps(a, b, c, d) pps_len(a, b, c, d, strlen(b))
+#define pps_nolock(a, b, c, d) pps_len(a, b, c, d, strlen(b) - 19)
+
+static void stmt_errors(MYSQL_STMT** stmt, int n){
 	int i;
 	for (i = 0; i < n; i++){
 		const char* e = mysql_stmt_error(stmt[i]);
@@ -187,14 +191,14 @@ void stmt_errors(MYSQL_STMT** stmt, int n){
 	}
 }
 
-void close_stmts(MYSQL_STMT** stmt, int n){
+static void close_stmts(MYSQL_STMT** stmt, int n){
 	int i;
 	for (i = 0; i < n; i++)
 		if (stmt[i])
 			mysql_stmt_close(stmt[i]);
 }
 
-int query_select_named_range(struct range* r){ // range already has r->name
+int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
 	#define NUM_STMT 1
 	#define NUM_BIND 7
 	int ret = 0, i, succ;
@@ -210,6 +214,8 @@ int query_select_named_range(struct range* r){ // range already has r->name
 	char conflict;
 	char null = false, error;
 	unsigned long path_len;
+	int acquiredCount = 0;
+	int totalCount = 0;
 	
 	old_buf[0] = 0;
 	len = strlen(r->name);
@@ -223,8 +229,10 @@ int query_select_named_range(struct range* r){ // range already has r->name
 	mysql_bind_init(bind[6], MYSQL_TYPE_STRING, r->name, len, &len, (bool*)0, true, &error); // Range.Name
 	
 	TXN_START;
-	
-	fail_check(pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0]));
+	if (lock)
+		fail_check(pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0]));
+	else
+		fail_check(pps_nolock(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0])); // take off lock
 	fail_check(!mysql_stmt_execute(stmt[0]));
 	fail_check(!mysql_stmt_store_result(stmt[0]));
 	for (;;){
@@ -234,54 +242,61 @@ int query_select_named_range(struct range* r){ // range already has r->name
 			break;
 		}
 		buf[path_len] = 0;
-		if (strncmp(old_buf, buf, path_len)){ // different file; add it
+		if (strcmp(old_buf, buf)){ // different file; add it
+			if (*files){
+				for (i = 0; files[i] && strcmp(files[i], buf); i++);
+				if (!files[i]){
+					continue;
+				}
+			}
 			memcpy(old_buf, buf, path_len);
-			old_buf[path_len + 1] = 0;
 			rf = range_add_file(r, old_buf, fileId);
 			fail_check(rf);
 		}
 		if (conflict){
 			printf("Warning: Interval [%lu, %lu) has been modified and might be inaccurate\n", base, bound);
 		}
-		range_file_add_it(rf, base, bound, offsetId); // no failure; just don't include it
+		range_file_add_it(rf, base, bound, offsetId); // no failure check; just don't include it if it fails
 	}
 	
 	// iterate through all range files and attempt acquiring interval locks
-	int acquiredCount = 0;
-	int totalCount = 0;
-	for (i = 0; i < r->num_files; i++){
-		rf = r->files + i;
-		totalCount += rf->num_it;
-		it_foreach(&rf->it, cur_interval){
-			cur_interval->file_path = rf->file_path;
-			cur_interval->lock_type = LOCK_TYPE_INTERVAL;
-			if (zk_acquire_lock(cur_interval) != ZOK) {
-				goto fail;
-			}
-			if (cur_interval->lock_acquired) {
-				acquiredCount++;
+	if (lock){
+		for (i = 0; i < r->num_files; i++){
+			rf = r->files + i;
+			totalCount += rf->num_it;
+			it_foreach(&rf->it, cur_interval){
+				cur_interval->file_path = rf->file_path;
+				cur_interval->lock_type = LOCK_TYPE_INTERVAL;
+				if (zk_acquire_lock(cur_interval) != ZOK) {
+					goto fail;
+				}
+				if (cur_interval->lock_acquired) {
+					acquiredCount++;
+				}
 			}
 		}
-	}
-	// successfully acquired all locks
-	if (acquiredCount == totalCount) {
-		open_files(r);
-	}
-	else {
-		fprintf(stderr, "Range %s is already in use\n", r->name);
-		goto fail;
+		// successfully acquired all locks
+		if (acquiredCount == totalCount) {
+			open_files(r);
+		}
+		else {
+			fprintf(stderr, "Range %s is already in use\n", r->name);
+			goto fail;
+		}
 	}
 	
 	TXN_COMMIT;
 	goto pass;
 fail:
 	// retry delete all possibly acquired interval locks
-	for (i = 0; i < r->num_files; i++){
-		rf = r->files + i;
-		it_foreach(&rf->it, cur_interval){
-			cur_interval->file_path = rf->file_path;
-			cur_interval->lock_type = LOCK_TYPE_INTERVAL;
-			zk_release_lock(cur_interval);
+	if (lock){
+		for (i = 0; i < r->num_files; i++){
+			rf = r->files + i;
+			it_foreach(&rf->it, cur_interval){
+				cur_interval->file_path = rf->file_path;
+				cur_interval->lock_type = LOCK_TYPE_INTERVAL;
+				zk_release_lock(cur_interval);
+			}
 		}
 	}
 	TXN_ROLLBACK;
@@ -317,11 +332,19 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, &null, true, &error); // Offset.OffsetId
 	mysql_bind_init(bind[5], MYSQL_TYPE_TINY, &conflict, sizeof(char), NULL, &null, true, &error); // Offset.Conflict
 	
-	fail_check(
-		pps(&stmt[0], QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0])&&
-		pps(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2])&&
-		pps(&stmt[2], QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
-	);
+	fail_check(pps(&stmt[0], QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0]));
+	if (cur_id == ID_NONE){
+		fail_check(
+			pps_nolock(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2]) &&
+			pps_nolock(&stmt[2], QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
+		);
+	}
+	else{
+		fail_check(
+			pps(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2]) &&
+			pps(&stmt[2], QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
+		);
+	}
 	rf->file_path = NULL;
 	
 	TXN_START;

@@ -41,6 +41,7 @@ Arguments are shown using regex.\n\
 					All intervals in each file along with their affiliated range names will be printed.\n\
 				If no argument is specified, all ranges are printed.\n\
 	THE EXECUTABLE:\n\
+		An executable must be supplied for the -r and -w modes.\n\
 		Once the -e flag is encountered, all processing of ARGS stops.\n\
 		EXE_PATH is a path to the executable (text editor) to use to open the file(s).\n\
 		EXE_OPTIONS are options for this executable.\n\

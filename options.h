@@ -4,21 +4,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wordexp.h>
 #include "file.h"
+#define OPTIONS_FILE "~/.whateverrc"
 //#define LN_LEN_MIN (4 + ORACLE_LEN_MIN * 2)
 
-static const char* OPTIONS_FILE = "~/.whateverrc";
 static const char* RC_TOKENS = " \t";
+char OPTIONS_FILE_PATH[PATH_MAX + 1];
 static char* NULL_STR = "";
 
-void get_fname_ext(char** fname, char** ext, char* file_path){
+static int options_file_init(){
+	int ret = -1, w;
+	wordexp_t t;
+	size_t len;
+	w = wordexp(OPTIONS_FILE, &t, 0);
+	if (!w){
+		OPTIONS_FILE_PATH[0] = 0;
+		len = strlen(t.we_wordv[0]);
+		if (len > PATH_MAX){
+			fprintf(stderr, "Options file path too long; ignoring\n");
+		}
+		else{
+			memcpy(OPTIONS_FILE_PATH, t.we_wordv[0], len + 1);
+		}
+		ret = 0;
+	}
+	wordfree(&t);
+	return ret;
+}
+
+static void get_fname_ext(char** fname, char** ext, char* file_path){
 	char* s = strrchr(file_path, '/');
 	*fname = (s)? s + 1 : file_path;
 	s = strrchr(file_path, '.');
 	*ext = (s)? s : NULL_STR;
 }
 
-char* get_an_oracle(char** str, int options_line){
+static char* get_an_oracle(char** str, int options_line){
 	char* s = NULL, *t;
 	size_t len;
 	for (t = *str; strpbrk(t, RC_TOKENS) == t; t++);
@@ -37,31 +59,34 @@ char* get_an_oracle(char** str, int options_line){
 		}
 		len = s - t - 1;
 		if (len < ORACLE_LEN_MIN){
-			fprintf(stderr, "%s:%d: Oracle is below the minimum oracle length of %d\n", OPTIONS_FILE, options_line, ORACLE_LEN_MIN);
+			fprintf(stderr, "%s:%d: Oracle is below the minimum oracle length of %d\n", OPTIONS_FILE_PATH, options_line, ORACLE_LEN_MIN);
 			s = NULL;
 		}
 		else if (len > ORACLE_LEN_MAX){
-			fprintf(stderr, "%s:%d: Oracle is above the maximum oracle length of %d\n", OPTIONS_FILE, options_line, ORACLE_LEN_MAX);
+			fprintf(stderr, "%s:%d: Oracle is above the maximum oracle length of %d\n", OPTIONS_FILE_PATH, options_line, ORACLE_LEN_MAX);
 			s = NULL;
 		}
 		goto out_pass;
 	}
 out_fail:
-	fprintf(stderr, "%s:%d: Improperly formed Oracle\n", OPTIONS_FILE, options_line);
+	fprintf(stderr, "%s:%d: Improperly formed Oracle\n", OPTIONS_FILE_PATH, options_line);
 out_pass:
 	*str = t;
 	return s;
 }
 
-void get_oracles(struct oracles* o, char* file_path){
-	FILE* f;
+static void get_oracles(struct oracles* o, char* file_path){
+	FILE* f = NULL;
 	char* target = NULL, *line = NULL, *str, *tp, *fname, *ext;
 	size_t n;
 	ssize_t l;
 	int target_level = 0, new_target, i, options_line;
-	f = fopen(OPTIONS_FILE, "r");
+	if (OPTIONS_FILE_PATH[0] == 0){
+		goto default_oracles;
+	}
+	f = fopen(OPTIONS_FILE_PATH, "r");
 	if (!f){
-		fprintf(stderr, "%s not found\n", OPTIONS_FILE);
+		fprintf(stderr, "%s not found\n", OPTIONS_FILE_PATH);
 		goto default_oracles;
 	}
 	get_fname_ext(&fname, &ext, file_path);
