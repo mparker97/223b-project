@@ -3,6 +3,8 @@
 
 #include <zookeeper/zookeeper.h>
 #include <pthread.h>
+#include "interval_tree.h"
+#include "range.h"
 
 #define LOCK_TYPE_INTERVAL 0
 #define LOCK_TYPE_MASTER_WRITE 1
@@ -16,6 +18,7 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path, void* contex
 int retry_create(char* znode, struct timespec * ts);
 int zk_release_lock(it_node_t *context);
 int zk_acquire_lock(it_node_t *context);
+int zk_acquire_master_lock(it_node_t* zkcontext, struct range_file* rf, int lt);
 
 // master lock functions
 static int _zk_master_read_lock_operation(it_node_t *context, struct timespec *ts);
