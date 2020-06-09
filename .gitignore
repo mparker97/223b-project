@@ -1,3 +1,8 @@
 .vscode/*
 *.o
 223b
+nosql/*.o
+nosql/223b
+nosql/bo
+nosql/ranges
+nosql/fs/*
