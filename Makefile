@@ -14,7 +14,7 @@ EXEC := 223b
 .PHONY: all zookeeper clean
 all: $(EXEC) zookeeper
 
-$(EXEC): $(OS) $(ZKOS)
+$(EXEC): $(OS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
 $(OS): %.o: %.c $(HS)
