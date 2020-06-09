@@ -1,0 +1,23 @@
+SHARED JOURNAL; DAY 1
+
+Alice (ID 0):
+I finally get the chance to test out some fun key exchange protocols with Bob!
+This first one we are trying is called "Diffie-Hellman", and it sounds awesome!
+I can't believe we can cast out our keys to the world yet still have them be secure.
+I sure hope no one finds a way to exploit this...
+
+Bob (ID 1):
+I tried the Diffie-Hellman key exchange today with Alice. It went well.
+
+Charlie (ID 2):
+Wow, Bob and Alice are fools.
+
+I heard they were trying DH exchange, and I was able to install a watcher to intercept it.
+Suckers don't know about man in the middle attacks!
+
+Dave (ID 3):
+Day 1, 9:21am. Sunny day today; few clouds in the sky, and definitely drier than yesterday. Still no sign of intelligent life.
+The Outback sure is interesting.
+This shared journal is alright, too.
+
+END SHARED JOURNAL

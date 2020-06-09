@@ -1,0 +1,21 @@
+SHARED JOURNAL; DAY 2
+
+Alice (ID 0):
+What the hell?!?!
+I've been talking to Bob through this secret encryption scheme, and my once good friend is now being a total jerk to me!
+I don't know what has gotten in to him, but I've just about had it.
+
+Bob (ID 1):
+I don't know what is going on with Alice.
+I'm telling her all these cool things that I did today, and she's acting all insulted for no reason.
+What is going on?
+
+Charlie (ID 2):
+Ha; that's show them for leaving old Charles in the dust.
+
+Dave (ID 3):
+Day 2, 2:13pm. Sunny and hot today; blistering heat and even drier than yesterday. And still no sign of intelligent life.
+The Outback sure is unforgiving.
+This shared journal is shit, too, I've discovered.
+
+END SHARED JOURNAL

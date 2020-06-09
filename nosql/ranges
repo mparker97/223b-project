@@ -1,5 +1,0 @@
-Range00 -f fs/file0.c -r 21,55 354,439 -f fs/file1.c -r 40,142 -f fs/journal/Day0.txt -r 37,174
-Range01 -f fs/file0.c -r 57,156 465,548 -f fs/file2.c -r 20,44 46,173 -f fs/journal/Day0.txt -r 188,311
-Range02 -f fs/file0.c -r 246,551 -f fs/journal/Day0.txt -r 329,745
-Range03 -f fs/dir0/j0.json -r 133,550 -f fs/journal/Day0.txt -r 760,1028
-Range04 -f fs/dir0/j0.json -r 568

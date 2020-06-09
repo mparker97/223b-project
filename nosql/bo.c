@@ -48,7 +48,7 @@ void read_lines(){
 		if (line[0] != '\n'){
 			len = strlen(line);
 			if (!strncmp(line, RANGE_W, RANGE_W_LEN) && len >= RANGE_W_LEN + 3){
-				j = atoi(line + RANGE_W_LEN);
+				j = atoi(line + RANGE_W_LEN) - 1;
 				if (j >= 0 && j < TOKENS_LEN){
 					if (lines[j] != NULL){
 						fprintf(stderr, "%s:%d: ERROR: Duplicate range %s%d\n", prog_name, i, RANGE_W, j);
@@ -64,11 +64,9 @@ void read_lines(){
 	}
 	free(line);
 	if (i == TOKENS_LEN && s >= 0){
-		//fprintf(stderr, "%s: ERROR: Too many lines\n", prog_name);
-		err(1);
+		fprintf(stderr, "%s: WARNING: Ignoring after line %d\n", prog_name, i);
 	}
 	for (i = 0; i < TOKENS_LEN; i++){
-		//fprintf(stderr, "line[%d] (%p): %s\n", i, lines[i], lines[i]);
 		interval_v[i] = -1;
 	}
 }
@@ -92,7 +90,7 @@ void write_lines(){
 		err(1);
 	}
 	else if (t > 0){
-		ftruncate(fileno(f_range), t - 1);
+		ftruncate(fileno(f_range), t);
 	}
 }
 
@@ -101,7 +99,7 @@ void add_range(char* fp, size_t offset, int w){
 	size_t len, buflen;
 	if (lines[w] == NULL){ // Range has not been added yet
 		lines[w] = realloc_safe(lines[w], RANGE_W_LEN + 2 + 1);
-		sprintf(lines[w], "%s%02d", RANGE_W, w);
+		sprintf(lines[w], "%s%02d", RANGE_W, w + 1);
 	}
 	len = strlen(lines[w]);
 	if (!(add_file_bitv & (1U << w))){ // File has not been added yet for this range
@@ -110,6 +108,7 @@ void add_range(char* fp, size_t offset, int w){
 		sprintf(lines[w] + len, " -f %s -r", fp);
 	}
 	if (interval_v[w] >= 0){ // Closing mark found; insert interval
+		
 		snprintf(buf, 63, " %ld,%lu", interval_v[w], offset);
 		interval_v[w] = -1;
 		buflen = strlen(buf);
