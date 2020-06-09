@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <time.h> 
 #include <unistd.h>
+#include <pthread.h>
 #include "sql.h"
 #include "interval_tree.h"
 #include "range.h"
@@ -78,6 +79,21 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
             pthread_mutex_unlock(&(zkcontext->pmutex));
         } 
     }
+}
+
+int zk_acquire_master_lock(it_node_t* zkcontext, struct range_file* rf, int lt){
+	// master read/write lock
+	zkcontext->lock_type = lt;
+	zkcontext->file_path = rf->file_path;
+	pthread_mutex_init(&(zkcontext->pmutex), NULL);
+	if (zk_acquire_lock(zkcontext) != ZOK){
+		return -1;
+	}
+	if (!zkcontext->lock_acquired) {
+		// watcher in zkclient will unlock once lock gets acquired
+		pthread_mutex_lock(&(zkcontext->pmutex));
+	}
+	return 0;
 }
 
 int zk_release_lock(it_node_t *context) {

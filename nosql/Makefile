@@ -8,8 +8,7 @@ MAINDIROS := main.o file.o interval_tree.o range.o
 THISDIROS := sql.o
 OS := $(addprefix $(MAINDIR)/, $(MAINDIROS)) $(THISDIROS)
 HS := $(addprefix $(MAINDIR)/, $(MAINDIRHS))
-#sed -n #p [file]
-#	replace # with line number
+
 LIBS := -lpthread
 
 BYTEOFFSETS := bo
@@ -17,14 +16,23 @@ RANGEFILE := ranges
 FSDIR := fs
 UNPARSEDDIR := unparsed
 
-.PHONY: all parse parse-files byte-offsets cleanfs clean
-all: 223b parse
+CMD = -h
+RANGEID = 1
 
-223b: $(OS)
+EXEC := 223b
+
+.PHONY: all test parse parse-files byte-offsets cleanfs clean
+all: $(EXEC) parse
+
+$(EXEC): $(OS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
 $(OS): %.o: %.c $(HS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(LIBS)
+
+test: $(EXEC)
+	# For example: make test CMD=-g RANGEID=2
+	sed -n $(RANGEID)p $(RANGEFILE) | xargs ./$(EXEC) $(CMD)
 
 parse: byte-offsets parse-files
 
@@ -50,4 +58,4 @@ cleanfs: clean
 	rm -rf $(RANGEFILE)
 clean:
 	rm -f ./*.o
-	rm -f 223b $(BYTEOFFSETS)
+	rm -f $(EXEC) $(BYTEOFFSETS)

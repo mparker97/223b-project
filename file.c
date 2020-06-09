@@ -110,20 +110,9 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 	
 	get_oracles(o, rf->file_path);
 	
-	// master read lock
-	zkcontext.lock_type = LOCK_TYPE_MASTER_READ;
-	zkcontext.file_path = rf->file_path;
-	pthread_mutex_init(&(zkcontext.pmutex), NULL);
-	if (zk_acquire_lock(&zkcontext) != ZOK){
-		goto fail;
-	}
-	if (!zkcontext.lock_acquired) {
-		// watcher in zkclient will unlock once lock gets acquired
-		pthread_mutex_lock(&(zkcontext.pmutex));
-	}
+	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_READ) >= 0);
 
 	backing_fd = open(rf->file_path, O_RDWR);
-
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		goto fail;
@@ -152,8 +141,7 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 fail:
 	if (backing_fd >= 0) {
 		close(backing_fd);
-		// successfully read - release master read lock
-		zk_release_lock(&zkcontext);
+		zk_release_lock(&zkcontext); // successfully read - release master read lock
 	}
 	if (swp_fd >= 0)
 		close(swp_fd);
@@ -164,28 +152,17 @@ fail:
 
 int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
 	int ret = 0, backing_fd = -1, i = 0;
+	it_node_t zkcontext;
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -o->oracle_len[1];//, total_change = 0;
 	
-	// master write lock
-	it_node_t zkcontext;
-	zkcontext.lock_type = LOCK_TYPE_MASTER_WRITE;
-	zkcontext.file_path = rf->file_path;
-	pthread_mutex_init(&(zkcontext.pmutex), NULL);
-
-	if (zk_acquire_lock(&zkcontext) != ZOK){
-		goto pass;
-	}
-	if (!zkcontext.lock_acquired) {
-		// watcher in zkclient will unlock once lock gets acquired
-		pthread_mutex_lock(&(zkcontext.pmutex));
-	}
+	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_WRITE) >= 0);
 
 	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		ret = -1;
-		goto pass; // really fail
+		goto fail;
 	}
 	it_foreach(&rf->it, p_itn){
 		o_open = oracle_search(swp_fd, o->oracle[0], o->oracle_len[0], o_close + o->oracle_len[1]);
@@ -211,10 +188,10 @@ int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
 		unlink_by_fd(swp_fd); // to remove swap file
 	}
 	close(swp_fd);
-	goto pass;
+	goto fail; // really pass
 rexec:
 	ret = -2;
-pass:
+fail:
 	if (backing_fd > 0)
 		close(backing_fd);
 	zk_release_lock(&zkcontext);

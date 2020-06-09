@@ -7,6 +7,7 @@
 #include "../interval_tree.h"
 #include "../range.h"
 
+/*
 static struct range my_range;
 
 int make_my_range(char* name){
@@ -31,33 +32,36 @@ int make_my_range(char* name){
 	return 0;
 fail:
 	return -1;
-}
+}*/
 
-int sql_init(){}
+int sql_init(){return 0;}
 void sql_end(){}
 
 int query_select_named_range(struct range* r){ // range already has r->name
+	int ret = 0;
 	
 	goto pass;
-fail:
+//fail:
 	ret = -1;
 pass:
 	return ret;
 }
 
 int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
+	int ret = 0;
 	do_print_file(rf);
 	goto pass;
-fail:
+//fail:
 	ret = -1;
 pass:
 	return ret;
 }
 
 int query_insert_named_range(struct range* r){
+	int ret = 0;
 	do_print_range(r);
 	goto pass;
-fail:
+//fail:
 	ret = -1;
 pass:
 	return ret;
@@ -65,6 +69,7 @@ pass:
 
 int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
 	int ret = 0, i;
+	struct it_node itn;
 	struct it_node* p_itn;
 	struct offset_update* ou;
 	ou = malloc(rf->num_it * sizeof(struct offset_update));
@@ -72,13 +77,15 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 
 	it_foreach(&rf->it, p_itn){
 		memcpy(&itn, p_itn, sizeof(struct it_node));
+		/*
 		ou[i].backing_start = db_base;
 		ou[i].backing_end = db_bound;
 		ou[i].swp_start = itn.base;
 		ou[i].swp_end = itn.bound;
+		*/
 		i++;
 	}
-	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, &o) > 0);
+	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, o) > 0);
 	
 	goto pass;
 fail:
