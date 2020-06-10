@@ -31,7 +31,7 @@ static const char* QUERY_SELECT_NAMED_RANGE = "\
 	(((RangeName INNER JOIN RangeFileJunction ON RangeName.RangeId = RangeFileJunction.RangeId) \
 		INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
 		INNER JOIN Offset ON File.FileId = Offset.FileId) \
-	WHERE RangeName.Name = ? AND RangeName.Init = TRUE\
+	WHERE RangeName.RangeId= Offset.RangeId AND RangeName.Name = ? AND RangeName.Init = TRUE\
 	ORDER BY File.FilePath, Offset.Base LOCK IN SHARE MODE"; // Range.RangeName changed from for share
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
@@ -53,7 +53,7 @@ static const char* QUERY_INSERT_NAMED_RANGE[] = {
 		// }
 		"INSERT INTO RangeFileJunction (RangeId, FileId) VALUES (?, ?)", // rangeId, fileId
 		// for each offset {
-			"INSERT INTO Offset (FileId, Base, Bound) VALUES (?, ?, ?)", // fileId, base, bound, mode
+			"INSERT INTO Offset (RangeId, FileId, Base, Bound) VALUES (?, ?, ?, ?)", // fileId, base, bound, mode
 		// }
 	// }
 	"UPDATE RangeName SET RangeName.Init = TRUE WHERE RangeName.RangeId = ?" // rangeId
@@ -427,7 +427,7 @@ int query_insert_named_range(struct range* r){
 		pps(&stmt[1], QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL)&&
 		pps(&stmt[2], QUERY_INSERT_NAMED_RANGE[2], &bind[1], &bind[3])&&
 		pps(&stmt[3], QUERY_INSERT_NAMED_RANGE[3], &bind[2], NULL)&&
-		pps(&stmt[4], QUERY_INSERT_NAMED_RANGE[4], &bind[3], NULL)&&
+		pps(&stmt[4], QUERY_INSERT_NAMED_RANGE[4], &bind[2], NULL)&&
 		pps(&stmt[5], QUERY_INSERT_NAMED_RANGE[5], &bind[2], NULL)
 	);
 	
@@ -443,15 +443,17 @@ int query_insert_named_range(struct range* r){
 	for (i = 0; i < r->num_files; i++){
 		name_len = strlen(r->files[i].file_path);
 		memcpy(buf, r->files[i].file_path, name_len + 1);
-		fail_check(!mysql_stmt_execute(stmt[1]));
-		if (mysql_stmt_affected_rows(stmt[1]) == 0){ // file already exists; grab its id
+		mysql_stmt_execute(stmt[1]);
+		if (mysql_stmt_affected_rows(stmt[1]) == (u_int64_t)-1){ // file already exists; grab its id
 			fail_check(!mysql_stmt_execute(stmt[2]));
 			fail_check(!mysql_stmt_store_result(stmt[2]));
-			succ = mysql_stmt_fetch(stmt[2]);
-			fail_check(succ != 1);
-			if (succ == MYSQL_NO_DATA){
-				fprintf(stderr, "Failed to add file %s\n", buf); // failed to add and failed to receive
-				goto fail;
+			for (;;){
+				succ = mysql_stmt_fetch(stmt[2]);
+				fprintf(stderr,"\nsucc is %d\n",succ);
+				fail_check(succ != 1);
+				if (succ == MYSQL_NO_DATA){
+					break;
+				}
 			}
 		}
 		else {
