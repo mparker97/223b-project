@@ -51,11 +51,11 @@ static void unlink_by_fd(int fd){
 	}
 }
 
-static ssize_t oracle_search(int fd, const char* oracle, size_t oracle_len, size_t off){ // search file identified by descriptor fd for string s of length s_len, starting at offset off
+static ssize_t oracle_search(int swp_fd, const char* oracle, size_t oracle_len, size_t off){ // search file identified by descriptor fd for string s of length s_len, starting at offset off
 	char* line, *str;
 	size_t ret = off, n;
 	ssize_t s;
-	FILE* f = fdopen(fd, "r");
+	FILE* f = fdopen(swp_fd, "r");
 	if (f){
 		fseek(f, off, SEEK_SET);
 		for (line = NULL; (s = getline(&line, &n, f)) >= 0; ret += s){
@@ -150,13 +150,20 @@ fail:
 	return -1;
 }
 
-int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
-	int ret = 0, backing_fd = -1, i = 0;
+int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
+	int ret = 0, backing_fd = -1, swp_fd = -1, i = 0;
 	it_node_t zkcontext;
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -o->oracle_len[1];//, total_change = 0;
 	
 	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_WRITE) >= 0);
+
+	swp_fd = open(swp_path, O_RDWR);
+	if (swp_fd < 0){
+		fprintf(stderr, "Failed to open %s\n", swp_path);
+		ret = -1;
+		goto fail;
+	}
 
 	backing_fd = open(rf->file_path, O_RDWR | O_CLOEXEC);
 	if (backing_fd < 0){
@@ -180,10 +187,11 @@ int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
 			goto rexec;
 		}
 		//total_change += o_close - (p_itn->bound);
-		p_itn->base = o_open - i * (o->oracle_len[0] + o->oracle_len[1]);
-		p_itn->bound = o_close - i * (o->oracle_len[0] + o->oracle_len[1]) - o->oracle_len[0];
+		p_itn->base = o_open + o->oracle_len[0];
+		p_itn->bound = o_close + o->oracle_len[1];
 		i++;
 	}
+
 	if (query_resize_file(rf, swp_fd, backing_fd, o) >= 0){
 		unlink_by_fd(swp_fd); // to remove swap file
 	}
@@ -244,7 +252,7 @@ static void* thd_open_files(void* arg){
 		if (exec_editor(path) < 0){
 			goto fail;
 		}
-		i = push_swap_file(swp_fd, oft->rf, &o);
+		i = push_swap_file(path, oft->rf, &o);
 		if (i == -1){
 			goto fail;
 		}
