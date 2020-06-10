@@ -647,11 +647,10 @@ static size_t getSequenceNumber(char* lock_name) {
 
 it_node_t* _deep_copy_it_node(it_node_t* original) {
     it_node_t* copy = malloc(sizeof(it_node_t));
-    if (copy == NULL) {
-        return copy;
+    if (copy != NULL) {
+         memcpy(copy, original, sizeof(it_node_t));
     }
-
-    memcpy(copy, original, sizeof(it_node_t));
+    return copy;
 }
 
 // compare function for it_node_t* elements by sequence

@@ -33,6 +33,7 @@ static int _zk_determine_interval_lock_eligibility(it_node_t *context, struct ti
 static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t* ret_array);
 static it_node_t** _sort_interval_locks_by_offset_id(struct String_vector * interval_children);
 static void _free_intervals_array(it_node_t** intervals_array, int len);
+it_node_t* _deep_copy_it_node(it_node_t* original);
 
 // util helpers
 static char* getLockName(char* str);
