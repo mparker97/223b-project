@@ -495,6 +495,9 @@ static int _zk_determine_interval_lock_eligibility(it_node_t *context, struct ti
         }
     }
 
+    // free relevant intervals
+    _free_intervals_array(relevant_intervals.array, relevant_intervals.len);
+
     return ret;
 }
 
@@ -563,8 +566,12 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
                 return -1;
             }
             interval_array = temp_array;
-            interval_array[interval_count-1] = cur_interval;
-            cur_interval->sequence = (*found_interval)->sequence;
+            interval_array[interval_count-1] = _deep_copy_it_node(cur_interval);
+            // malloc failed
+            if (interval_array[interval_count-1] == NULL) {
+                return -1;
+            }
+            interval_array[interval_count-1]->sequence = (*found_interval)->sequence;
             found_interval++;
         }   
     }
@@ -636,6 +643,15 @@ static size_t getSequenceNumber(char* lock_name) {
         return 0;
 
     return ret;
+}
+
+it_node_t* _deep_copy_it_node(it_node_t* original) {
+    it_node_t* copy = malloc(sizeof(it_node_t));
+    if (copy == NULL) {
+        return copy;
+    }
+
+    memcpy(copy, original, sizeof(it_node_t));
 }
 
 // compare function for it_node_t* elements by sequence
