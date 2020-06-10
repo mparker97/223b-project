@@ -551,7 +551,7 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
         );
         // iterate backwards until start of intervals with the same offset id
         while (found_interval > locks_sorted_by_offset_id &&
-               (*found_interval)->id == cur_interval->id) {
+               (*(found_interval-1))->id == cur_interval->id) {
             found_interval--;
         }
 
