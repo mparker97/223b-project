@@ -129,7 +129,7 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 	//oracle_len[1]--;
 	add_oracles(swp_fd, backing_fd, rf, o);
 	
-	close(backing_fd);
+	closec(backing_fd);
 	// successfully read - release master read lock
 	zk_release_lock(&zkcontext);
 
@@ -140,11 +140,11 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 	return swp_fd;
 fail:
 	if (backing_fd >= 0) {
-		close(backing_fd);
+		closec(backing_fd);
 		zk_release_lock(&zkcontext); // successfully read - release master read lock
 	}
 	if (swp_fd >= 0)
-		close(swp_fd);
+		closec(swp_fd);
 	if (s)
 		free(s);
 	return -1;
@@ -187,13 +187,13 @@ int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
 	if (query_resize_file(rf, swp_fd, backing_fd, o) >= 0){
 		unlink_by_fd(swp_fd); // to remove swap file
 	}
-	close(swp_fd);
+	closec(swp_fd);
 	goto fail; // really pass
 rexec:
 	ret = -2;
 fail:
 	if (backing_fd > 0)
-		close(backing_fd);
+		closec(backing_fd);
 	zk_release_lock(&zkcontext);
 	return ret;
 }
@@ -300,6 +300,6 @@ fail:
 	ret = -1;
 pass:
 	if (tmp_fd >= 0)
-		close(tmp_fd);
+		closec(tmp_fd);
 	return ret;
 }
