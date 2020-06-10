@@ -111,15 +111,15 @@ static const char* QUERY_RESIZE_FILE[] = {
 	
 	"SELECT OffsetId FROM Offset WHERE FileId = ? FOR UPDATE", // lock all of file's offsets: fileId; 
 	// for each offset in this file for the range {
-		"SET @oid = ?, @nb = ?", // offsetId, new_bound
+		"SET @oid = ?, @ns = ?", // offsetId, new_size
 		"SELECT Base, Bound INTO @b, @ob FROM Offset WHERE OffsetId = @oid", // base, bound
 		"SELECT Base, Bound FROM Offset WHERE OffsetId = @oid", // base, bound
 		"UPDATE Offset SET \
 			Base = CASE \
-				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @nb - @ob \
+				WHEN OffsetId != @oid AND Base >= @ob THEN Base + @ns - (@ob - @b) \
 				ELSE Base END, \
 			Bound = CASE \
-				WHEN Bound >= @ob THEN Bound + @nb - @ob \
+				WHEN Bound >= @ob THEN Bound + @ns - (@ob - @b) \
 				ELSE Bound END, \
 			Conflict = CASE \
 				WHEN OffsetId = @oid THEN FALSE \
@@ -499,15 +499,15 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	int ret = 0, i = 0;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
-	struct it_node* p_itn, itn;
+	struct it_node* p_itn;
 	struct offset_update* ou = NULL;
-	unsigned long db_base, db_bound;
+	unsigned long id, new_sz, db_base, db_bound;
 	int succ, release_count = 0;
 	char null = false, error;
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
-	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &itn.id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
-	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &itn.bound, sizeof(size_t), NULL, (bool*)0, true, &error); // new_bound
+	mysql_bind_init(bind[1], MYSQL_TYPE_LONGLONG, &id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.OffsetId
+	mysql_bind_init(bind[2], MYSQL_TYPE_LONGLONG, &new_sz, sizeof(size_t), NULL, (bool*)0, true, &error); // new_bound
 	mysql_bind_init(bind[3], MYSQL_TYPE_LONGLONG, &db_base, sizeof(size_t), NULL, &null, true, &error); // Offset.Base
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &db_bound, sizeof(size_t), NULL, &null, true, &error); // Offset.Bound
 	
@@ -543,7 +543,8 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 		}
 	}
 	it_foreach(&rf->it, p_itn){
-		memcpy(&itn, p_itn, sizeof(struct it_node));
+		id = p_itn->id;
+		new_sz = p_itn->bound - p_itn->base;
 		fail_check(!mysql_stmt_execute(stmt[1]));
 		fail_check(!mysql_stmt_execute(stmt[2]));
 		fail_check(!mysql_stmt_execute(stmt[3]));
@@ -555,8 +556,8 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 		fail_check(!mysql_stmt_execute(stmt[4]));
 		ou[i].backing_start = db_base;
 		ou[i].backing_end = db_bound;
-		ou[i].swp_start = itn.base;
-		ou[i].swp_end = itn.bound;
+		ou[i].swp_start = p_itn->base;
+		ou[i].swp_end = p_itn->bound;
 		i++;
 	}
 	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, o) >= 0);
