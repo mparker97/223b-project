@@ -16,6 +16,11 @@ static clientid_t myid;
 
 int zkclient_init() {
     zkconnected = 0;
+
+    // append zk logs to file
+    FILE* zklog = fopen("./zklog", "a");
+    zoo_set_log_stream(zklog);
+
     zh = zookeeper_init(hostPorts, watcher, 10000, 0, NULL, 0);
     time_t expires = time(0) + 10;
     while(!zkconnected && time(0) < expires) {
