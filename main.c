@@ -109,7 +109,7 @@ void opts(int argc, char* argv[]){
 				}
 			}
 			argv[i + 1] = NULL; // cut off after last file after removing dups
-			err_out(query_select_named_range(&global_r, &argv[k], 1) < 0, ""); // TODO: NULL means everything
+			err_out(query_select_named_range(&global_r, &argv[k], 1) < 0, "w: query_select_named_range failed"); // TODO: NULL means everything
 			break;
 		case 'n': // i[n]sert
 			err_out(range_init(&global_r, optarg) < 0, "");
