@@ -230,20 +230,19 @@ int zk_acquire_lock(it_node_t *context) {
     return check_retry;
 }
 
-int zk_lock_intervals(struct range_file* rf, int fail_any){
+int zk_lock_intervals(struct range_file* rf){
 	struct it_node* p_itn;
 	int acquired_count = 0;
 	it_foreach(&rf->it, p_itn){
 		p_itn->file_path = rf->file_path;
 		p_itn->lock_type = LOCK_TYPE_INTERVAL;
-		if (zk_acquire_lock(p_itn) != ZOK){
+		if (zk_acquire_lock(p_itn) == ZOK){
 			if (p_itn->lock_acquired){
 				acquired_count++;
 				continue;
 			}
 		}
-		if (fail_any)
-			return -1;
+		return -1;
 	}
 	return acquired_count;
 }

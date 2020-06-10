@@ -261,7 +261,7 @@ int query_select_named_range(struct range* r, char** files, int lock){ // range 
 	// iterate through all range files and attempt acquiring interval locks
 	if (lock){
 		for (i = 0; i < r->num_files; i++){
-			if (zk_lock_intervals(&r->files[i], 1) < rf->num_it){
+			if (zk_lock_intervals(&r->files[i]) < rf->num_it){
 				fprintf(stderr, "Range %s is already in use\n", r->name);
 				goto fail_unlock;
 			}

@@ -18,7 +18,7 @@ int retry_create(char* znode, struct timespec * ts);
 int zk_release_lock(it_node_t *context);
 int zk_acquire_lock(it_node_t *context);
 int zk_acquire_master_lock(it_node_t* zkcontext, struct range_file* rf, int lt);
-int zk_lock_intervals(struct range_file* rf, int fail_any);
+int zk_lock_intervals(struct range_file* rf);
 int zk_unlock_intervals(struct range_file* rf);
 
 // master lock functions
