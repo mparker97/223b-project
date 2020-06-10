@@ -60,6 +60,7 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
             fprintf(stderr, "Session expired. Shutting down...\n");
             zookeeper_close(zzh);
             zh=0;
+             zkclient_init();
         }
     }
     else if (type == ZOO_DELETED_EVENT) {
