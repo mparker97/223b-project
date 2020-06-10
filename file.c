@@ -188,7 +188,7 @@ int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
 		}
 		//total_change += o_close - (p_itn->bound);
 		p_itn->base = o_open + o->oracle_len[0];
-		p_itn->bound = o_close + o->oracle_len[1];
+		p_itn->bound = o_close;
 		i++;
 	}
 
