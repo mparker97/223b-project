@@ -537,17 +537,6 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
     it_node_t** interval_array = NULL;
     int interval_count = 0;
     it_foreach(&rf.it, cur_interval){
-        interval_count++;
-        it_node_t** temp_array = realloc(
-            interval_array, 
-            interval_count * sizeof(it_node_t*)
-        );
-        if (temp_array == NULL) {
-            return -1;
-        }
-        interval_array = temp_array;
-        interval_array[interval_count-1] = cur_interval;
-
         // find corresponding sequence from zk for cur_interval
         // ideally this would be a map, but we'll just do a binary search for the time being
         it_node_t** found_interval = (it_node_t**) bsearch(
@@ -557,7 +546,22 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
             sizeof(cur_interval),
             cmpOffsetIdFunc
         );
-        cur_interval->sequence = (*found_interval)->sequence;
+
+        while (found_interval < locks_sorted_by_offset_id + interval_locks.count &&
+               (*found_interval)->id == cur_interval->id) {
+            interval_count++;
+            it_node_t** temp_array = realloc(
+                interval_array, 
+                interval_count * sizeof(it_node_t*)
+            );
+            if (temp_array == NULL) {
+                return -1;
+            }
+            interval_array = temp_array;
+            interval_array[interval_count-1] = cur_interval;
+            cur_interval->sequence = (*found_interval)->sequence;
+            found_interval++;
+        }   
     }
 
     // free the locks information with just the offset_id and sequence
