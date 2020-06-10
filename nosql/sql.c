@@ -74,7 +74,8 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	struct l_list* l;
 	struct offset_update* ou = NULL;
 	struct range r;
-	fail_check(make_range(&r) < 0);
+	range_init(&r, "DUMMYRANGE");
+	fail_check(make_range(&r) >= 0);
 	printf("Range constructed successfully\n");
 	ou = malloc(rf->num_it * sizeof(struct offset_update));
 	fail_check(ou);
@@ -96,7 +97,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 		l = l->next;
 		i++;
 	}
-	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, o) > 0);
+	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, o) >= 0);
 	
 	goto pass;
 fail:

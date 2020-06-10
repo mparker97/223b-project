@@ -41,7 +41,7 @@ do { \
 #define ORACLE_LEN_MIN 8
 #define ORACLE_LEN_MAX 255
 #define freec(x) do{free(x); x = NULL;} while (0)
-#define closec(x) do{close(x); x = 0;} while (0)
+#define closec(x) do{close(x); x = -1;} while (0)
 
 #define ID_NONE (unsigned long)(-1)
 #define BOUND_END ((size_t)(-1))
