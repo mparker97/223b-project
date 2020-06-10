@@ -112,7 +112,7 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 	
 	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_READ) >= 0);
 
-	backing_fd = open(rf->file_path, O_RDWR);
+	backing_fd = open(rf->file_path, O_RDWR | O_CLOEXEC);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		goto fail;
@@ -158,7 +158,7 @@ int push_swap_file(int swp_fd, struct range_file* rf, struct oracles* o){
 	
 	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_WRITE) >= 0);
 
-	backing_fd = open(rf->file_path, O_RDWR);
+	backing_fd = open(rf->file_path, O_RDWR | O_CLOEXEC);
 	if (backing_fd < 0){
 		fprintf(stderr, "Failed to open %s\n", rf->file_path);
 		ret = -1;
