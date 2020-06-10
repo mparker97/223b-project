@@ -118,7 +118,7 @@ int pull_swap_file(struct range_file* rf, struct oracles* o){
 		goto fail;
 	}
 	//swp_fd = open(swp_dir, O_RDWR /*| O_TMPFILE*/, S_IRWXU);
-	swp_fd = open(s, O_RDWR | O_CREAT, S_IRWXU);
+	swp_fd = open(s, O_RDWR | O_CREAT | O_CLOEXEC, S_IRWXU);
 	if (swp_fd < 0){
 		fprintf(stderr, "Failed to create swap file for %s\n", rf->file_path);
 		goto fail;
