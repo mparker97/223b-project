@@ -543,9 +543,8 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 		}
 	}
 	it_foreach(&rf->it, p_itn){
-		memcpy(&itn, p_itn, sizeof(struct it_node));
 		id = p_itn->id;
-		new_sz = p_itn->base - p_itn->bound;
+		new_sz = p_itn->bound - p_itn->base;
 		fail_check(!mysql_stmt_execute(stmt[1]));
 		fail_check(!mysql_stmt_execute(stmt[2]));
 		fail_check(!mysql_stmt_execute(stmt[3]));
