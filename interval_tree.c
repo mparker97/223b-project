@@ -23,6 +23,12 @@ inline int it_intersect(struct it_node* a, struct it_node* b){
 	return 0;
 }
 
+inline int it_conflict(struct it_node* a, struct it_node* b){
+	if (a->base < b->bound && b->base < a->bound)
+		return 1;
+	return 0;
+}
+
 struct it_node* it_insert_new(int* new, struct l_list* it, size_t base, size_t bound, unsigned long id){ // not at all thread safe
 	struct it_node* p_itn, *p_f;
 	struct l_list* save = it;

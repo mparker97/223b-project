@@ -249,6 +249,7 @@ int query_select_named_range(struct range* r, char** files, int lock){ // range 
 				}
 			}
 			memcpy(old_buf, buf, path_len);
+			old_buf[path_len] = 0;
 			rf = range_add_file(r, old_buf, fileId);
 			fail_check(rf);
 		}
@@ -378,7 +379,7 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 			cur_interval->base = base;
 			cur_interval->bound = bound;
 			cur_interval->id = offsetId;
-			if (it_intersect(&new_interval, cur_interval)) {
+			if (it_conflict(&new_interval, cur_interval)) {
 				l_list_add_after(cur_ls, &(cur_interval->ls));
 				cur_ls = &(cur_interval->ls);
 			}
