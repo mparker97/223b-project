@@ -10,7 +10,9 @@
 
 static int zkclient_init(){return 0;}
 static int zk_acquire_master_lock(it_node_t* zkcontext, struct range_file* rf, int lt){return 0;}
-static int zk_acquire_lock(it_node_t* zkcontext){return ZOK;}
 static int zk_release_lock(it_node_t* zkcontext){return ZOK;}
+static int zk_acquire_lock(it_node_t *context){return ZOK;};
+static int zk_lock_intervals(struct range_file* rf, int fail_any){return rf->num_it;};
+static int zk_unlock_intervals(struct range_file* rf){return rf->num_it;};
 
 #endif

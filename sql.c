@@ -205,17 +205,16 @@ int query_select_named_range(struct range* r, char** files, int lock){ // range 
 	struct range_file* rf = NULL;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
+	struct open_files_thread* thds;
+	void* retval;
 	char buf[PATH_MAX + 1];
 	char old_buf[PATH_MAX + 1];
-	it_node_t* cur_interval;
 	unsigned long fileId, offsetId;
 	size_t base, bound;
 	unsigned long len;
+	unsigned long path_len;
 	char conflict;
 	char null = false, error;
-	unsigned long path_len;
-	int acquiredCount = 0;
-	int totalCount = 0;
 	
 	old_buf[0] = 0;
 	len = strlen(r->name);
@@ -262,43 +261,31 @@ int query_select_named_range(struct range* r, char** files, int lock){ // range 
 	// iterate through all range files and attempt acquiring interval locks
 	if (lock){
 		for (i = 0; i < r->num_files; i++){
-			rf = r->files + i;
-			totalCount += rf->num_it;
-			it_foreach(&rf->it, cur_interval){
-				cur_interval->file_path = rf->file_path;
-				cur_interval->lock_type = LOCK_TYPE_INTERVAL;
-				if (zk_acquire_lock(cur_interval) != ZOK) {
-					goto fail;
-				}
-				if (cur_interval->lock_acquired) {
-					acquiredCount++;
-				}
+			if (zk_lock_intervals(&r->files[i], 1) < rf->num_it){
+				fprintf(stderr, "Range %s is already in use\n", r->name);
+				goto fail_unlock;
 			}
 		}
-		// successfully acquired all locks
-		if (acquiredCount == totalCount) {
-			open_files(r);
+		TXN_COMMIT;
+		thds = open_files(r);
+		if (thds){
+			for (i = 0; i < r->num_files; i++){
+				if (thds[i].rf)
+					pthread_join(thds[i].thd, &retval);
+			}
+			free(thds);
 		}
-		else {
-			fprintf(stderr, "Range %s is already in use\n", r->name);
-			goto fail;
-		}
+		goto pass;
 	}
 	
 	TXN_COMMIT;
 	goto pass;
-fail:
+fail_unlock:
 	// retry delete all possibly acquired interval locks
-	if (lock){
-		for (i = 0; i < r->num_files; i++){
-			rf = r->files + i;
-			it_foreach(&rf->it, cur_interval){
-				cur_interval->file_path = rf->file_path;
-				cur_interval->lock_type = LOCK_TYPE_INTERVAL;
-				zk_release_lock(cur_interval);
-			}
-		}
+	for (i = 0; i < r->num_files; i++){
+		zk_unlock_intervals(&r->files[i]);
 	}
+fail:
 	TXN_ROLLBACK;
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
@@ -496,13 +483,12 @@ pass:
 int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
 	#define NUM_STMT 5
 	#define NUM_BIND 5
-	int ret = 0, i = 0;
+	int ret = 0, i = 0, unlock = 0, succ;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn;
 	struct offset_update* ou = NULL;
 	unsigned long id, new_sz, db_base, db_bound;
-	int succ, release_count = 0;
 	char null = false, error;
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
@@ -524,16 +510,9 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	
 	TXN_START;
 	
-	// ZK UNLOCK
-	it_foreach(&rf->it, p_itn){
-		p_itn->file_path = rf->file_path;
-		p_itn->lock_type = LOCK_TYPE_INTERVAL;
-		if (zk_release_lock(p_itn) == ZOK){
-			release_count++;
-		}
-	}
-	
 	fail_check(!mysql_stmt_execute(stmt[0]));
+	zk_unlock_intervals(rf);
+	unlock = 1;
 	fail_check(!mysql_stmt_store_result(stmt[0]));
 	for(;;){
 		succ = mysql_stmt_fetch(stmt[0]); // get updated old base and bound from DB
@@ -565,18 +544,12 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	TXN_COMMIT;
 	goto pass;
 fail:
+	if (!unlock)
+		zk_unlock_intervals(rf);
 	TXN_ROLLBACK;
 	ret = -1;
 	stmt_errors(stmt, NUM_STMT);
 pass:
-	// release failed earlier
-	if (release_count != rf->num_it){
-		it_foreach(&rf->it, p_itn){
-			p_itn->file_path = rf->file_path;
-			p_itn->lock_type = LOCK_TYPE_INTERVAL;
-			zk_release_lock(p_itn);
-		}
-	}
 	if (ou)
 		free(ou);
 	close_stmts(stmt, NUM_STMT);

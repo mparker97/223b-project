@@ -16,7 +16,7 @@
 #define fail_check(c) \
 	do { \
 		if (!(c)){ \
-			fprintf(stderr, "Assertion (" STR(c) ") Failed\n"); \
+			fprintf(stderr, "%s:%d: Assertion (" STR(c) ") Failed\n", __FILE__, __LINE__); \
 			goto fail; \
 		} \
 	} while (0)

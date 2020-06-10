@@ -151,23 +151,23 @@ fail:
 }
 
 int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
-	int ret = 0, backing_fd = -1, swp_fd = -1, i = 0;
+	int ret = 0, backing_fd = -1, swp_fd = -1, i = 0, swp_unlink = 1;
 	it_node_t zkcontext;
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -o->oracle_len[1];//, total_change = 0;
 	
-	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_WRITE) >= 0);
-
 	swp_fd = open(swp_path, O_RDWR);
 	if (swp_fd < 0){
-		fprintf(stderr, "Failed to open %s\n", swp_path);
+		fprintf(stderr, "Failed to open swap file %s\n", swp_path);
 		ret = -1;
 		goto fail;
 	}
+	
+	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_WRITE) >= 0);
 
 	backing_fd = open(rf->file_path, O_RDWR | O_CLOEXEC);
 	if (backing_fd < 0){
-		fprintf(stderr, "Failed to open %s\n", rf->file_path);
+		fprintf(stderr, "Failed to open backing file %s\n", rf->file_path);
 		ret = -1;
 		goto fail;
 	}
@@ -192,15 +192,18 @@ int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
 		i++;
 	}
 
-	if (query_resize_file(rf, swp_fd, backing_fd, o) >= 0){
-		unlink_by_fd(swp_fd); // to remove swap file
-	}
-	closec(swp_fd);
+	query_resize_file(rf, swp_fd, backing_fd, o);
 	goto fail; // really pass
 rexec:
+	swp_unlink = 0;
 	ret = -2;
 fail:
-	if (backing_fd > 0)
+	if (swp_fd >= 0){
+		if (swp_unlink)
+			unlink_by_fd(swp_fd); // to remove swap file
+		closec(swp_fd);
+	}
+	if (backing_fd >= 0)
 		closec(backing_fd);
 	zk_release_lock(&zkcontext);
 	return ret;
@@ -228,11 +231,6 @@ static int exec_editor(char* f_path){
 	return f;
 }
 
-struct open_files_thread{
-	pthread_t thd;
-	struct range_file* rf;
-};
-
 static void* thd_open_files(void* arg){
 	char path[PATH_MAX + 1];
 	struct open_files_thread* oft = (struct open_files_thread*)arg;
@@ -248,7 +246,6 @@ static void* thd_open_files(void* arg){
 		goto fail;
 	}
 	do{
-		// TODO: can I keep the swap file desc open while I do exec?
 		if (exec_editor(path) < 0){
 			goto fail;
 		}
@@ -257,25 +254,25 @@ static void* thd_open_files(void* arg){
 			goto fail;
 		}
 	} while (i < 0);
-	return (void*)1;
+	//return (void*)1;
 fail:
 	return NULL;
 }
 
-void open_files(struct range* r){
+struct open_files_thread* open_files(struct range* r){
 	int i;
 	struct open_files_thread* thds = malloc(r->num_files * sizeof(struct open_files_thread));
-	void* retval;
-	err_out(!thds, "Malloc open files threads failed\n");
+	if (!thds){
+		fprintf(stderr, "Malloc open files threads failed\n");
+		return NULL;
+	}
 	for (i = 0; i < r->num_files; i++){
 		thds[i].rf = &r->files[i];
-		pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i]);
+		if (pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i])){
+			thds[i].rf = NULL; // indicate failed pthread_create
+		}
 	}
-	for (i = 0; i < r->num_files; i++){
-		pthread_join(thds[i].thd, &retval);
-	}
-	if (thds)
-		free(thds);
+	return thds;
 }
 
 int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd, struct oracles* o){

@@ -23,7 +23,7 @@ RANGEID = 1
 EXEC := 223b
 TEXTEXEC := cat
 
-.PHONY: all exec_helper sendhs returnhs test parse parse-files byte-offsets cleanfs clean
+.PHONY: all exec_helper sendhs returnhs test parse parse-files byte-offsets cleanall cleanfs clean
 
 $(EXEC): sendhs exec_helper returnhs
 
@@ -72,9 +72,12 @@ byte-offsets: $(BYTEOFFSETS)
 $(BYTEOFFSETS): %: %.c
 	$(CC) -o $@ $< $(CFLAGS)
 
+cleanall: cleanfs
+	$(MAKE) clean -C $(MAINDIR)
 cleanfs: clean
 	rm -rf $(FSDIR)/*
 	rm -f $(RANGEFILE)
 clean:
 	rm -f ./*.o
 	rm -f $(EXEC) $(BYTEOFFSETS)
+	rm -f ./*.swp

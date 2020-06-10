@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include "../file.h"
 #include "../sql.h"
 #include "../common.h"
@@ -36,10 +37,21 @@ int sql_init(){return 0;}
 void sql_end(){}
 
 int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
-	int ret = 0;
+	int ret = 0, i;
+	struct open_files_thread* thds;
+	void* retval;
 	fail_check(make_range(r) >= 0);
 	printf("Range constructed successfully\n");
-	open_files(r);
+	
+	thds = open_files(r);
+	if (thds){
+		for (i = 0; i < r->num_files; i++){
+			if (thds[i].rf)
+				pthread_join(thds[i].thd, &retval);
+		}
+		free(thds);
+	}
+	
 	goto pass;
 fail:
 	ret = -1;
@@ -79,11 +91,14 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	printf("Range constructed successfully\n");
 	ou = malloc(rf->num_it * sizeof(struct offset_update));
 	fail_check(ou);
-
+	
+	printf("\nsearching for %s\n", r.files[i].file_path);
 	for (j = 0; j < r.num_files; j++){
 		if (!strcmp(rf->file_path, r.files[i].file_path)){
+			printf("\tfound in %s\n", rf->file_path);
 			break;
 		}
+		printf("\tnot found in %s\n", rf->file_path);
 	}
 	fail_check(j < r.num_files);
 	l = &r.files[j].it;

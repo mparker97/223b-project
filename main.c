@@ -126,6 +126,7 @@ void opts(int argc, char* argv[]){
 				i++;
 			}
 			err_out(!i, "No file specified\n");
+			// sql w/ &global_r
 			break;
 		case 'g': // new ran[g]e
 			fs = malloc(argc * sizeof(struct range_file*));
