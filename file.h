@@ -22,7 +22,6 @@ struct open_files_thread{
 	pthread_t thd;
 	struct range_file* rf;
 	char* swp_file_path;
-	int i;
 };
 
 struct offset_update{
@@ -30,10 +29,10 @@ struct offset_update{
 };
 
 //int get_path_by_fd(char* path, int fd);
-int pull_swap_file(struct range_file* rf, struct oracles* o);
+int pull_swap_file(char* swp_path, struct range_file* rf, struct oracles* o);
 int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o);
-int exec_editor(struct open_files_thread* oft);
+int exec_editor(struct open_files_thread* oft, int nr);
 int prepare_file_threads(struct range* r);
-int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd, struct oracles* o);
+int write_offset_update(struct range_file* rf, struct offset_update* ou, struct oracles* o, int swp_fd);
 
 #endif

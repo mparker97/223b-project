@@ -12,13 +12,13 @@ void sql_end();
 int query_select_named_range(struct range* r, char** files, int lock);
 int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id);
 int query_insert_named_range(struct range* r);
-int query_resize_file(struct range_file* f, int swp_fd, int backing_fd, struct oracles* o);
+int query_resize_file(struct range_file* f, struct oracles* o, int swp_fd);
 #include "file.h"
 
 /* SCHEMA:
-CREATE TABLE Range (
+CREATE TABLE RangeName (
 	RangeId SERIAL,
-	RangeName VARCHAR(64) UNIQUE,
+	Name VARCHAR(64) UNIQUE,
 	Init BOOL DEFAULT FALSE
 );
 CREATE TABLE File (
@@ -38,36 +38,9 @@ CREATE TABLE Offset (
 	Bound LONG NOT NULL,
 	Conflict BOOL DEFAULT FALSE,
 	FileId LONG NOT NULL,
+	RangeId LONG NOT NULL,
 	FOREIGN KEY (FileId) REFERENCES File(FileId) ON DELETE CASCADE
-);
-___________________
-CREATE TABLE RangeName (
-	RangeId SERIAL,
-	Name VARCHAR(64) UNIQUE
-);
-
-CREATE TABLE File (
-	FileId SERIAL,
-	FilePath VARCHAR(3072) UNIQUE
-); #exceeded max size
-
-CREATE TABLE RangeFileJunction (
-	RangeFileJunctionId SERIAL,
-	RangeId bigint UNSIGNED NOT NULL,   #need to match type
-  	FileId bigint UNSIGNED NOT NULL,
-	FOREIGN Key (RangeId) REFERENCES RangeName(RangeId) ON DELETE CASCADE,
-    	FOREIGN Key (FileId) REFERENCES File(FileId) ON DELETE CASCADE
-);
-
-CREATE TABLE Offset (
-	OffsetId SERIAL,
-	Base bigint UNSIGNED NOT NULL,
-	Bound bigint UNSIGNED NOT NULL,
-	Conflict BOOL DEFAULT FALSE,
-	RangeId bigint UNSIGNED NOT NULL,
-	FileId bigint UNSIGNED NOT NULL,
-	FOREIGN Key (RangeId) REFERENCES RangeName(RangeId) ON DELETE CASCADE,
-	FOREIGN KEY (FileId) REFERENCES File(FileId) ON DELETE CASCADE
+	FOREIGN KEY (RangeId) REFERENCES RangeName(RangeId) ON DELETE CASCADE
 );
 */
 

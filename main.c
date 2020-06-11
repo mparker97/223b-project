@@ -97,13 +97,14 @@ void opts(int argc, char* argv[]){
 			k = optind; // k is the position of first file
 			foreach_optarg(argc, argv); // exhaust through files
 			l = optind; // r is the position after last file
-			for (; optind < argc && strcmp(argv[optind], "-e"); optind++); // search for -e
-			err_out(optind >= argc - 1, "-%c mode requires an executable\n", c);
-			if (!strcmp(argv[++optind], "-m")){
-				multiple_mode = 1;
-				optind++;
+			for (; optind < argc && strcmp(argv[optind], "-e"); optind++){ // search for -e/-E
+				if (!strcmp(argv[optind], "-E")){
+					multiple_mode = 1;
+					break;
+				}
 			}
-			p_exe_path = &argv[optind];
+			err_out(optind >= argc - 1, "-%c mode requires an executable\n", c);
+			p_exe_path = &argv[++optind];
 			exe_argc = argc - optind;
 			argv[l] = NULL;
 			qsort(&argv[k], l - k, sizeof(char*), p_strcmp);

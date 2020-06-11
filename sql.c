@@ -32,7 +32,7 @@ static const char* QUERY_SELECT_NAMED_RANGE = "\
 	(((RangeName INNER JOIN RangeFileJunction ON RangeName.RangeId = RangeFileJunction.RangeId) \
 		INNER JOIN File ON RangeFileJunction.FileId = File.FileId) \
 		INNER JOIN Offset ON File.FileId = Offset.FileId) \
-	WHERE RangeName.RangeId= Offset.RangeId AND RangeName.Name = ? AND RangeName.Init = TRUE\
+	WHERE RangeName.RangeId = Offset.RangeId AND RangeName.Name = ? AND RangeName.Init = TRUE\
 	ORDER BY File.FilePath, Offset.Base LOCK IN SHARE MODE"; // Range.RangeName changed from for share
 
 static const char* QUERY_SELECT_FILE_INTERVALS[] = {
@@ -420,11 +420,11 @@ int query_insert_named_range(struct range* r){
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
-		pps(&stmt[0], QUERY_INSERT_NAMED_RANGE[0], &bind[0], NULL)&&
-		pps(&stmt[1], QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL)&&
-		pps(&stmt[2], QUERY_INSERT_NAMED_RANGE[2], &bind[1], &bind[3])&&
-		pps(&stmt[3], QUERY_INSERT_NAMED_RANGE[3], &bind[2], NULL)&&
-		pps(&stmt[4], QUERY_INSERT_NAMED_RANGE[4], &bind[2], NULL)&&
+		pps(&stmt[0], QUERY_INSERT_NAMED_RANGE[0], &bind[0], NULL) &&
+		pps(&stmt[1], QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL) &&
+		pps(&stmt[2], QUERY_INSERT_NAMED_RANGE[2], &bind[1], &bind[3]) &&
+		pps(&stmt[3], QUERY_INSERT_NAMED_RANGE[3], &bind[2], NULL) &&
+		pps(&stmt[4], QUERY_INSERT_NAMED_RANGE[4], &bind[2], NULL) &&
 		pps(&stmt[5], QUERY_INSERT_NAMED_RANGE[5], &bind[2], NULL)
 	);
 	
@@ -479,7 +479,7 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
+int query_resize_file(struct range_file* rf, struct oracles* o, int swp_fd){
 	#define NUM_STMT 5
 	#define NUM_BIND 5
 	int ret = 0, i = 0, unlock = 0, succ;
@@ -538,7 +538,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 		ou[i].swp_end = p_itn->bound;
 		i++;
 	}
-	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, o) >= 0);
+	fail_check(write_offset_update(rf, ou, o, swp_fd) >= 0);
 	
 	TXN_COMMIT;
 	goto pass;

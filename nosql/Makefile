@@ -19,6 +19,7 @@ UNPARSEDDIR := unparsed
 
 CMD = -h
 RANGEID = 1
+EFLAG = -e
 
 EXEC := 223b
 TEXTEXEC := cat
@@ -51,7 +52,7 @@ returnhs: $(THISDIRHS)
 test: $(EXEC)
 	$(eval a=$(shell sed -n $(RANGEID)p $(RANGEFILE)))
 	$(eval TEXTEXEC=$(shell which $(TEXTEXEC)))
-	./$(EXEC) $(CMD) $a -e $(TEXTEXEC)
+	./$(EXEC) $(CMD) $a $(EFLAG) $(TEXTEXEC)
 
 parse: byte-offsets parse-files
 

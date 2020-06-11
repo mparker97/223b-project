@@ -70,7 +70,7 @@ pass:
 	return ret;
 }
 
-int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
+int query_resize_file(struct range_file* rf, struct oracles* o, int swp_fd){
 	int ret = 0, i = 0, j;
 	struct it_node* r_itn;
 	struct it_node* p_itn;
@@ -85,7 +85,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	
 	printf("\nsearching for %s\n", r.files[i].file_path);
 	for (j = 0; j < r.num_files; j++){
-		if (!strcmp(rf->file_path, r.files[i].file_path)){
+		if (!strcmp(rf->file_path, r.files[j].file_path)){
 			printf("\tfound in %s\n", rf->file_path);
 			break;
 		}
@@ -103,7 +103,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 		l = l->next;
 		i++;
 	}
-	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, o) >= 0);
+	fail_check(write_offset_update(rf, ou, o, swp_fd) >= 0);
 	
 	goto pass;
 fail:
