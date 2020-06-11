@@ -1,18 +1,20 @@
 #ifndef SQL_H
 #define SQL_H
+#include <mysql/mysql.h>
 
 struct range;
 struct range_file;
 struct it_node;
 struct oracles;
 typedef struct it_node it_node_t;
+extern MYSQL global_mysql;
 
-int sql_init();
-void sql_end();
-int query_select_named_range(struct range* r, char** files, int lock);
-int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id);
-int query_insert_named_range(struct range* r);
-int query_resize_file(struct range_file* f, struct oracles* o, int swp_fd);
+int sql_init(MYSQL* mysql);
+void sql_deinit(MYSQL* mysql, int is_thread);
+int query_select_named_range(MYSQL* mysql, struct range* r, char** files, int lock);
+int query_select_file_intervals(MYSQL* mysql, struct range_file* rf, char* file_path, unsigned long cur_id);
+int query_insert_named_range(MYSQL* mysql, struct range* r);
+int query_resize_file(MYSQL* mysql, struct range_file* f, struct oracles* o, int swp_fd);
 #include "file.h"
 
 /* SCHEMA:

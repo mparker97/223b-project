@@ -85,7 +85,7 @@ int pull_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
 	swap_file_path(swp_path, swp_dir, rf->file_path);
 	get_oracles(o, rf->file_path);
 	
-	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_READ) >= 0);
+	fail_check(zk_acquire_master_lock(NULL, &zkcontext, rf, LOCK_TYPE_MASTER_READ) >= 0);
 
 	backing_fd = open(rf->file_path, O_RDWR | O_CLOEXEC);
 	if (backing_fd < 0){
@@ -116,7 +116,7 @@ fail:
 	return ret;
 }
 
-int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
+int push_swap_file(MYSQL* mysql, char* swp_path, struct range_file* rf, struct oracles* o){
 	int ret = -1, swp_fd = -1, i = 0, swp_unlink = 1;
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -o->oracle_len[1];
@@ -142,7 +142,7 @@ int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
 		i++;
 	}
 
-	query_resize_file(rf, o, swp_fd);
+	query_resize_file(mysql, rf, o, swp_fd);
 	ret = 0;
 	goto fail; // really pass
 rexec:
@@ -206,15 +206,20 @@ int exec_editor(struct open_files_thread* oft, int nr){
 }
 
 static void* thd_open_files(void* arg){
+	MYSQL mysql;
 	char swp_path[SWP_PATH_MAX + 1];
 	struct open_files_thread* oft = (struct open_files_thread*)arg;
 	struct oracles o;
-	int i;
+	int i, si = 0;
+	if (sql_init(&mysql) < 0){
+		goto fail_pcq;
+	}
+	si = 1;
 	if (pull_swap_file(swp_path, oft->rf, &o) < 0){
 		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
 		goto fail_pcq;
 	}
-	oft->swp_file_path = swp_path;
+	oft->swp_file_path = swp_path; // this action signifies success to pcq_enqueue
 	pcq_enqueue(&global_qc, oft);
 	if (multiple_mode){
 		if ((size_t)pcq_dequeue(&global_qp) == 0){ // master sent fail message; abort
@@ -222,13 +227,13 @@ static void* thd_open_files(void* arg){
 			zk_unlock_intervals(oft->rf);
 		}
 		else{ // master sent ok
-			fail_check(push_swap_file(swp_path, oft->rf, &o) >= 0);
+			fail_check(push_swap_file(&mysql, swp_path, oft->rf, &o) >= 0);
 		}
 	}
 	else{
 		do{
 			fail_check(exec_editor(oft, 0) >= 0);
-			i = push_swap_file(swp_path, oft->rf, &o);
+			i = push_swap_file(&mysql, swp_path, oft->rf, &o);
 			fail_check(i != -1);
 		} while (i < 0);
 	}
@@ -236,6 +241,8 @@ static void* thd_open_files(void* arg){
 fail_pcq:
 	pcq_enqueue(&global_qc, oft);
 fail:
+	if (si)
+		sql_deinit(&mysql, 1);
 	return NULL;
 }
 
@@ -310,7 +317,7 @@ int write_offset_update(struct range_file* rf, struct offset_update* ou, struct 
 		goto fail;
 	}
 	
-	fail_check(zk_acquire_master_lock(&zkcontext, rf, LOCK_TYPE_MASTER_WRITE) >= 0);
+	fail_check(zk_acquire_master_lock(NULL, &zkcontext, rf, LOCK_TYPE_MASTER_WRITE) >= 0);
 	
 	backing_fd = open(rf->file_path, O_RDWR);
 	if (backing_fd < 0){

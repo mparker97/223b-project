@@ -1,6 +1,8 @@
 #ifndef FILE_H
 #define FILE_H
+#include <mysql/mysql.h>
 #include <pthread.h>
+#include "sql.h"
 #include "common.h"
 #include "range.h"
 #include "pcq.h"
@@ -30,7 +32,7 @@ struct offset_update{
 
 //int get_path_by_fd(char* path, int fd);
 int pull_swap_file(char* swp_path, struct range_file* rf, struct oracles* o);
-int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o);
+int push_swap_file(MYSQL* sql, char* swp_path, struct range_file* rf, struct oracles* o);
 int exec_editor(struct open_files_thread* oft, int nr);
 int prepare_file_threads(struct range* r);
 int write_offset_update(struct range_file* rf, struct offset_update* ou, struct oracles* o, int swp_fd);

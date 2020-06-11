@@ -69,7 +69,8 @@ extern int multiple_mode;
 static void err(int e){
 	global_rs_deinit();
 	pthread_mutex_destroy(&print_lock);
-	sql_end();
+	sql_deinit(&global_mysql, 0);
+	mysql_library_end();
 	// other frees
 	exit(e);
 }

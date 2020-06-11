@@ -10,9 +10,9 @@
 #include "zkclient.h"
 #include "pcq.h"
 
-#define TXN_START fail_check(!mysql_real_query(&mysql, "START TRANSACTION", 17))
-#define TXN_COMMIT fail_check(!mysql_real_query(&mysql, "COMMIT", 6))
-#define TXN_ROLLBACK mysql_real_query(&mysql, "ROLLBACK", 8)
+#define TXN_START fail_check(!mysql_real_query(mysql, "START TRANSACTION", 17))
+#define TXN_COMMIT fail_check(!mysql_real_query(mysql, "COMMIT", 6))
+#define TXN_ROLLBACK mysql_real_query(mysql, "ROLLBACK", 8)
 
 // binding, buffer type, buffer, buffer length, length of data in buffer (in) or output (out, non-fixed type), is null, is unsigned, error
 #define mysql_bind_init(bind, a, b, c, d, e, f, g) \
@@ -132,17 +132,12 @@ static const char* QUERY_RESIZE_FILE[] = {
 	// }
 };
 
-static MYSQL mysql;
+MYSQL global_mysql;
 
-int sql_init(){
-	/* mysql_init does this
-	if (mysql_library_init(0, NULL, NULL)){
-		fprintf(stderr, "Failed to initialize mysql library\n");
-	}
-	*/
+int sql_init(MYSQL* mysql){
 	int ret = 0;
-	mysql_init(&mysql);
-	if (!mysql_real_connect(&mysql,
+	mysql_init(mysql);
+	if (!mysql_real_connect(mysql,
 		"172.31.24.95", // localhost // TODO: remote host?
 		"client", // user
 		"password", // password
@@ -157,14 +152,15 @@ int sql_init(){
 	return ret;
 }
 
-void sql_end(){
-	mysql_close(&mysql);
-	mysql_library_end();
+inline void sql_deinit(MYSQL* mysql, int is_thread){
+	if (is_thread)
+		mysql_thread_end();
+	mysql_close(mysql);
 }
 
-static bool pps_len(MYSQL_STMT** ret, const char* query, MYSQL_BIND* in, MYSQL_BIND* out, size_t len){ // prepare prepared statement; mysql_stmt_close return value if not NULL
+static bool pps_len(MYSQL_STMT** ret, MYSQL* mysql, const char* query, MYSQL_BIND* in, MYSQL_BIND* out, size_t len){ // prepare prepared statement; mysql_stmt_close return value if not NULL
 	MYSQL_STMT* stmt;
-	fail_check(stmt = mysql_stmt_init(&mysql));
+	fail_check(stmt = mysql_stmt_init(mysql));
 	fail_check(!mysql_stmt_prepare(stmt, query, len));
 	*ret = stmt;
 	if (in){
@@ -178,8 +174,8 @@ fail:
 	return false;
 }
 
-#define pps(a, b, c, d) pps_len(a, b, c, d, strlen(b))
-#define pps_nolock(a, b, c, d) pps_len(a, b, c, d, strlen(b) - 19)
+#define pps(a, b, c, d, e) pps_len(a, b, c, d, e, strlen(c))
+#define pps_nolock(a, b, c, d, e) pps_len(a, b, c, d, e, strlen(c) - 19)
 
 static void stmt_errors(MYSQL_STMT** stmt, int n){
 	int i;
@@ -199,7 +195,7 @@ static void close_stmts(MYSQL_STMT** stmt, int n){
 			mysql_stmt_close(stmt[i]);
 }
 
-int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
+int query_select_named_range(MYSQL* mysql, struct range* r, char** files, int lock){ // range already has r->name
 	#define NUM_STMT 1
 	#define NUM_BIND 7
 	int ret = 0, i, succ, committed = 0;
@@ -228,9 +224,9 @@ int query_select_named_range(struct range* r, char** files, int lock){ // range 
 	
 	TXN_START;
 	if (lock)
-		fail_check(pps(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0]));
+		fail_check(pps(&stmt[0], mysql, QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0]));
 	else
-		fail_check(pps_nolock(&stmt[0], QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0])); // take off lock
+		fail_check(pps_nolock(&stmt[0], mysql, QUERY_SELECT_NAMED_RANGE, &bind[6], &bind[0])); // take off lock
 	fail_check(!mysql_stmt_execute(stmt[0]));
 	fail_check(!mysql_stmt_store_result(stmt[0]));
 	for (;;){
@@ -261,7 +257,7 @@ int query_select_named_range(struct range* r, char** files, int lock){ // range 
 	// iterate through all range files and attempt acquiring interval locks
 	if (lock){
 		for (i = 0; i < r->num_files; i++){
-			if (zk_lock_intervals(&r->files[i]) < r->files[i].num_it){
+			if (zk_lock_intervals(mysql, &r->files[i]) < r->files[i].num_it){
 				fprintf(stderr, "Range %s is already in use\n", r->name);
 				goto fail_unlock;
 			}
@@ -293,7 +289,7 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
+int query_select_file_intervals(MYSQL* mysql, struct range_file* rf, char* file_path, unsigned long cur_id){
 	#define NUM_STMT 3
 	#define NUM_BIND 6
 	int ret = 0, succ;
@@ -316,17 +312,17 @@ int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned
 	mysql_bind_init(bind[4], MYSQL_TYPE_LONGLONG, &offsetId, sizeof(size_t), NULL, &null, true, &error); // Offset.OffsetId
 	mysql_bind_init(bind[5], MYSQL_TYPE_TINY, &conflict, sizeof(char), NULL, &null, true, &error); // Offset.Conflict
 	
-	fail_check(pps(&stmt[0], QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0]));
+	fail_check(pps(&stmt[0], mysql, QUERY_SELECT_FILE_INTERVALS[0], &bind[1], &bind[0]));
 	if (cur_id == ID_NONE){
 		fail_check(
-			pps_nolock(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2]) &&
-			pps_nolock(&stmt[2], QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
+			pps_nolock(&stmt[1], mysql, QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2]) &&
+			pps_nolock(&stmt[2], mysql, QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
 		);
 	}
 	else{
 		fail_check(
-			pps(&stmt[1], QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2]) &&
-			pps(&stmt[2], QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
+			pps(&stmt[1], mysql, QUERY_SELECT_FILE_INTERVALS[1], &bind[4], &bind[2]) &&
+			pps(&stmt[2], mysql, QUERY_SELECT_FILE_INTERVALS[2], &bind[0], &bind[2])
 		);
 	}
 	rf->file_path = NULL;
@@ -398,7 +394,7 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_insert_named_range(struct range* r){
+int query_insert_named_range(MYSQL* mysql, struct range* r){
 	#define NUM_STMT 6
 	#define NUM_BIND 6
 	int ret = 0, i, succ;
@@ -420,12 +416,12 @@ int query_insert_named_range(struct range* r){
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
-		pps(&stmt[0], QUERY_INSERT_NAMED_RANGE[0], &bind[0], NULL) &&
-		pps(&stmt[1], QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL) &&
-		pps(&stmt[2], QUERY_INSERT_NAMED_RANGE[2], &bind[1], &bind[3]) &&
-		pps(&stmt[3], QUERY_INSERT_NAMED_RANGE[3], &bind[2], NULL) &&
-		pps(&stmt[4], QUERY_INSERT_NAMED_RANGE[4], &bind[2], NULL) &&
-		pps(&stmt[5], QUERY_INSERT_NAMED_RANGE[5], &bind[2], NULL)
+		pps(&stmt[0], mysql, QUERY_INSERT_NAMED_RANGE[0], &bind[0], NULL) &&
+		pps(&stmt[1], mysql, QUERY_INSERT_NAMED_RANGE[1], &bind[1], NULL) &&
+		pps(&stmt[2], mysql, QUERY_INSERT_NAMED_RANGE[2], &bind[1], &bind[3]) &&
+		pps(&stmt[3], mysql, QUERY_INSERT_NAMED_RANGE[3], &bind[2], NULL) &&
+		pps(&stmt[4], mysql, QUERY_INSERT_NAMED_RANGE[4], &bind[2], NULL) &&
+		pps(&stmt[5], mysql, QUERY_INSERT_NAMED_RANGE[5], &bind[2], NULL)
 	);
 	
 	TXN_START;
@@ -435,7 +431,7 @@ int query_insert_named_range(struct range* r){
 		fprintf(stderr, "The range %s already exists\n", r->name);
 		goto fail;
 	}
-	rangeId = mysql_insert_id(&mysql);
+	rangeId = mysql_insert_id(mysql);
 	
 	for (i = 0; i < r->num_files; i++){
 		name_len = strlen(r->files[i].file_path);
@@ -454,7 +450,7 @@ int query_insert_named_range(struct range* r){
 			}
 		}
 		else {
-			fileId = mysql_insert_id(&mysql); // file did not exist and was thus added; retrieve id
+			fileId = mysql_insert_id(mysql); // file did not exist and was thus added; retrieve id
 		}
 		r->files[i].id = fileId;
 		fail_check(!mysql_stmt_execute(stmt[3]));
@@ -479,7 +475,7 @@ pass:
 	#undef NUM_BIND
 }
 
-int query_resize_file(struct range_file* rf, struct oracles* o, int swp_fd){
+int query_resize_file(MYSQL* mysql, struct range_file* rf, struct oracles* o, int swp_fd){
 	#define NUM_STMT 5
 	#define NUM_BIND 5
 	int ret = 0, i = 0, unlock = 0, succ;
@@ -498,11 +494,11 @@ int query_resize_file(struct range_file* rf, struct oracles* o, int swp_fd){
 	
 	memset(stmt, 0, NUM_STMT * sizeof(MYSQL_STMT*));
 	fail_check(
-		pps(&stmt[0], QUERY_RESIZE_FILE[0], &bind[0], NULL) &&
-		pps(&stmt[1], QUERY_RESIZE_FILE[1], &bind[1], NULL) &&
-		pps(&stmt[2], QUERY_RESIZE_FILE[2], NULL, NULL) &&
-		pps(&stmt[3], QUERY_RESIZE_FILE[3], NULL, &bind[3]) &&
-		pps(&stmt[4], QUERY_RESIZE_FILE[4], &bind[0], NULL)
+		pps(&stmt[0], mysql, QUERY_RESIZE_FILE[0], &bind[0], NULL) &&
+		pps(&stmt[1], mysql, QUERY_RESIZE_FILE[1], &bind[1], NULL) &&
+		pps(&stmt[2], mysql, QUERY_RESIZE_FILE[2], NULL, NULL) &&
+		pps(&stmt[3], mysql, QUERY_RESIZE_FILE[3], NULL, &bind[3]) &&
+		pps(&stmt[4], mysql, QUERY_RESIZE_FILE[4], &bind[0], NULL)
 	);
 	ou = malloc(rf->num_it * sizeof(struct offset_update));
 	fail_check(ou);

@@ -33,10 +33,12 @@ fail:
 	return -1;
 }
 
-int sql_init(){return 0;}
-void sql_end(){}
+MYSQL global_mysql;
 
-int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
+int sql_init(MYSQL* mysql){return 0;}
+void sql_deinit(MYSQL* mysql, int is_thread){}
+
+int query_select_named_range(MYSQL* sql, struct range* r, char** files, int lock){ // range already has r->name
 	int ret = 0;
 	fail_check(make_range(r) >= 0);
 	printf("Range constructed successfully\n");
@@ -50,7 +52,7 @@ pass:
 	return ret;
 }
 
-int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
+int query_select_file_intervals(MYSQL* sql, struct range_file* rf, char* file_path, unsigned long cur_id){
 	int ret = 0;
 	do_print_file(rf);
 	goto pass;
@@ -60,7 +62,7 @@ pass:
 	return ret;
 }
 
-int query_insert_named_range(struct range* r){
+int query_insert_named_range(MYSQL* sql, struct range* r){
 	int ret = 0;
 	do_print_range(r);
 	goto pass;
@@ -70,7 +72,7 @@ pass:
 	return ret;
 }
 
-int query_resize_file(struct range_file* rf, struct oracles* o, int swp_fd){
+int query_resize_file(MYSQL* sql, struct range_file* rf, struct oracles* o, int swp_fd){
 	int ret = 0, i = 0, j;
 	struct it_node* r_itn;
 	struct it_node* p_itn;
