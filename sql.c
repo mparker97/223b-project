@@ -202,11 +202,10 @@ static void close_stmts(MYSQL_STMT** stmt, int n){
 int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
 	#define NUM_STMT 1
 	#define NUM_BIND 7
-	int ret = 0, i, succ, committed = 0, num_thds = 0;
+	int ret = 0, i, succ, committed = 0;
 	struct range_file* rf = NULL;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
-	struct open_files_thread* thds, *retval;
 	char buf[PATH_MAX + 1];
 	char old_buf[PATH_MAX + 1];
 	unsigned long fileId, offsetId;
@@ -268,61 +267,15 @@ int query_select_named_range(struct range* r, char** files, int lock){ // range 
 			}
 		}
 		TXN_COMMIT;
-		committed = 1;
-		// no fail_check after this point
-		if (pcq_init(&global_q, r->num_files) < 0){
-			fprintf(stderr, "Failed to initialize pcq\n");
+		if (prepare_file_threads(r) < 0){
+			committed = 1;
 			goto fail_unlock;
 		}
-		if (sem_init(&global_sem, 0, 0) < 0){
-			fprintf(stderr, "Failed to initialize bar\n");
-			goto fail_free_pcq;
-		}
-		thds = open_files(r);
-		if (thds){
-			for (i = 0; i < r->num_files; i++){
-				retval = (struct open_files_thread*)pcq_dequeue(&global_q);
-				if (retval->swp_file_path){ // thread set up successfully
-					num_thds++;
-				}
-				else{ // thread failed to set up
-					zk_unlock_intervals(&r->files[retval->i]);
-					thds[retval->i].rf = NULL;
-					// pthread_create faiure also ends up here... I'm just going to forget about joining
-				}
-			}
-			if (num_thds == 0){
-				goto fail_free_sem;
-			}
-			if (multiple_mode){
-				thds->i = r->num_files; // pass number of elements through i field of first element
-				if (exec_editor(thds) < 0){
-					goto fail_free_sem; // TODO: don't abandon threads?
-				}
-				for (i = 0; i < num_thds; i++){
-					sem_post(&global_sem);
-				}
-			}
-			for (i = 0; i < r->num_files; i++){
-				if (thds[i].rf)
-					pthread_join(thds[i].thd, NULL);
-			}
-			free(thds);
-		}
-		else{
-			goto fail_free_sem;
-		}
-		sem_destroy(&global_sem);
-		pcq_deinit(&global_q);
 		goto pass;
 	}
 	
 	TXN_COMMIT;
 	goto pass;
-fail_free_sem:
-	sem_destroy(&global_sem);
-fail_free_pcq:
-	pcq_deinit(&global_q);
 fail_unlock:
 	// retry delete all possibly acquired interval locks
 	for (i = 0; i < r->num_files; i++){

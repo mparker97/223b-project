@@ -22,8 +22,7 @@ char* DEFAULT_START_ORACLE = "[START ORACLE]";
 char* DEFAULT_END_ORACLE = "[END ORACLE]";
 
 char swp_dir[PATH_MAX + 1];
-struct pcq global_q;
-sem_t global_sem;
+struct pcq global_qp, global_qc;
 
 static char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
 	char* ret, *s;
@@ -241,19 +240,21 @@ static int exec_editor_fork(struct open_files_thread* oft){
 }
 
 int exec_editor(struct open_files_thread* oft){
-	char* tmp;
+	int wstatus;
 	int f = fork();
 	if (f < 0){
 		fprintf(stderr, "Fork failed\n");
 	}
 	else if (f == 0){
 		exec_editor_fork(oft);
-		fprintf(stderr, "Failed to run executable %s\n", tmp);
-		exit(1); // TODO status
+		fprintf(stderr, "Failed to run executable %s\n", *p_exe_path);
+		exit(1);
 	}
 	else{
 		printf("Writing file %s from pid %d\n", oft->swp_file_path, f);
-		waitpid(f, NULL, 0);
+		waitpid(f, &wstatus, 0);
+		if (WEXITSTATUS(wstatus))
+			f = -1;
 	}
 	return f;
 }
@@ -273,10 +274,14 @@ static void* thd_open_files(void* arg){
 		goto fail_pcq;
 	}
 	oft->swp_file_path = path;
-	pcq_enqueue(&global_q, oft);
+	pcq_enqueue(&global_qc, oft);
 	if (multiple_mode){
-		sem_wait(&global_sem);
-		fail_check(push_swap_file(path, oft->rf, &o) >= 0);
+		if ((size_t)pcq_dequeue(&global_qp) == 0){
+			unlink(path);
+		}
+		else{
+			fail_check(push_swap_file(path, oft->rf, &o) >= 0);
+		}
 	}
 	else{
 		do{
@@ -287,7 +292,7 @@ static void* thd_open_files(void* arg){
 	}
 	goto fail; // really pass
 fail_pcq:
-	pcq_enqueue(&global_q, oft);
+	pcq_enqueue(&global_qc, oft);
 fail:
 	return NULL;
 }
@@ -305,10 +310,58 @@ struct open_files_thread* open_files(struct range* r){
 		thds[i].swp_file_path = NULL;
 		thds[i].i = i;
 		if (pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i])){
-			pcq_enqueue(&global_q, &thds[i]);
+			pcq_enqueue(&global_qc, &thds[i]);
 		}
 	}
 	return thds;
+}
+
+int prepare_file_threads(struct range* r){
+	struct open_files_thread* thds = NULL, *retval;
+	int ret = -1, i, num_thds;
+	size_t succ;
+	if (pcq_init(&global_qp, r->num_files) < 0 || pcq_init(&global_qc, r->num_files) < 0){
+		fprintf(stderr, "Failed to initialize pcqs\n");
+		goto fail;
+	}
+	thds = open_files(r);
+	if (thds){
+		for (i = num_thds = 0; i < r->num_files; i++){
+			retval = (struct open_files_thread*)pcq_dequeue(&global_qc);
+			if (retval->swp_file_path){ // thread set up successfully
+				num_thds++;
+			}
+			else{ // thread failed to set up
+				zk_unlock_intervals(&r->files[retval->i]);
+				thds[retval->i].rf = NULL;
+				// pthread_create faiure also ends up here... I'm just going to forget about joining
+			}
+		}
+		fail_check(num_thds > 0);
+		if (multiple_mode){
+			thds->i = r->num_files; // pass number of elements through i field of first element
+			if (exec_editor(thds) < 0){
+				succ = 0; // TODO: don't abandon threads?
+			}
+			else{
+				succ = 1;
+			}
+			for (i = 0; i < num_thds; i++){
+				pcq_enqueue(&global_qp, succ);
+			}
+		}
+		for (i = 0; i < r->num_files; i++){
+			if (thds[i].rf)
+				pthread_join(thds[i].thd, NULL);
+		}
+	}
+	ret = 0;
+fail:
+	if (thds)
+		free(thds);
+	pcq_deinit(&global_qp);
+	pcq_deinit(&global_qc);
+	return ret;
 }
 
 int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd, struct oracles* o){

@@ -1,7 +1,6 @@
 #ifndef FILE_H
 #define FILE_H
 #include <pthread.h>
-#include <semaphore.h>
 #include "common.h"
 #include "range.h"
 #include "pcq.h"
@@ -11,8 +10,8 @@ extern char* DEFAULT_START_ORACLE;
 extern char* DEFAULT_END_ORACLE;
 
 extern char swp_dir[PATH_MAX + 1];
-extern struct pcq global_q;
-extern sem_t global_sem;
+extern struct pcq global_qp;
+extern struct pcq global_qc;
 
 struct oracles{
 	char oracle[2][ORACLE_LEN_MAX + 1];
@@ -34,7 +33,7 @@ struct offset_update{
 int pull_swap_file(struct range_file* rf, struct oracles* o);
 int push_swap_file(char* swp_path, struct range_file* rf, struct oracles* o);
 int exec_editor(struct open_files_thread* oft);
-struct open_files_thread* open_files(struct range* r);
+int prepare_file_threads(struct range* r);
 int write_offset_update(struct offset_update* ou, int len, int swp_fd, int backing_fd, struct oracles* o);
 
 #endif

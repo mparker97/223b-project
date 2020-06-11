@@ -16,6 +16,7 @@ static int pcq_init(struct pcq* q, size_t sz){
 	if (!(q->q = malloc(sz))){
 		return -1;
 	}
+	fprintf(stderr, "pcq_init with sz %lu\n", sz);
 	q->sz = sz;
 	q->cap = 0;
 	pthread_mutex_init(&q->lock, NULL);
@@ -35,6 +36,7 @@ static void pcq_deinit(struct pcq* q){
 }
 
 static void pcq_enqueue_real(struct pcq* q, char* elm){
+	fprintf(stderr, "pcq enqueue\n");
 	pthread_mutex_lock(&q->lock);
 	while (q->cap == q->sz)
 		pthread_cond_wait(&q->full, &q->lock);

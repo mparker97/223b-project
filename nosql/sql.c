@@ -37,20 +37,11 @@ int sql_init(){return 0;}
 void sql_end(){}
 
 int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
-	int ret = 0, i;
-	struct open_files_thread* thds;
-	void* retval;
+	int ret = 0;
 	fail_check(make_range(r) >= 0);
 	printf("Range constructed successfully\n");
 	
-	thds = open_files(r);
-	if (thds){
-		for (i = 0; i < r->num_files; i++){
-			if (thds[i].rf)
-				pthread_join(thds[i].thd, &retval);
-		}
-		free(thds);
-	}
+	fail_check(prepare_file_threads(r) >= 0);
 	
 	goto pass;
 fail:

@@ -78,6 +78,7 @@ cleanfs: clean
 	rm -rf $(FSDIR)/*
 	rm -f $(RANGEFILE)
 clean:
+	$(MAKE) clean -C $(MAINDIR)
 	rm -f ./*.o
 	rm -f $(EXEC) $(BYTEOFFSETS)
 	rm -f ./*.swp
