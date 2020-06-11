@@ -549,6 +549,12 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
             sizeof(cur_interval),
             cmpOffsetIdFunc
         );
+
+        // skip over db records that do not have interval locks
+        if (found_interval == NULL) {
+            continue;
+        }
+
         // iterate backwards until start of intervals with the same offset id
         while (found_interval > locks_sorted_by_offset_id &&
                (*(found_interval-1))->id == cur_interval->id) {
