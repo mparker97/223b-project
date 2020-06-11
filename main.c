@@ -16,10 +16,12 @@
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
 extern char swp_dir[PATH_MAX + 1];
+int multiple_mode;
 struct range global_r;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
 char** p_exe_path;
+int exe_argc;
 
 void get_range(size_t* base, size_t* bound, char* str){
 	*base = atol(str);
@@ -69,7 +71,6 @@ void opts(int argc, char* argv[]){
 	struct range_file* rf = NULL;
 	size_t base, bound;
 	struct range_file** fs = NULL;
-	void* retval;
 	char* buf = "+f:\0+r:";
 	pthread_t* thds = NULL;
 	int i = 0, j, k, l;
@@ -98,7 +99,12 @@ void opts(int argc, char* argv[]){
 			l = optind; // r is the position after last file
 			for (; optind < argc && strcmp(argv[optind], "-e"); optind++); // search for -e
 			err_out(optind >= argc - 1, "-%c mode requires an executable\n", c);
-			p_exe_path = &argv[optind + 1];
+			if (!strcmp(argv[++optind], "-m")){
+				multiple_mode = 1;
+				optind++;
+			}
+			p_exe_path = &argv[optind];
+			exe_argc = argc - optind;
 			argv[l] = NULL;
 			qsort(&argv[k], l - k, sizeof(char*), p_strcmp);
 			for (i = k, j = k + 1; j < l; j++){ // remove dups
@@ -207,7 +213,7 @@ skip_add_file:;
 			}
 out:
 			for (j = 0; j < i; j++){
-				pthread_join(thds[j], &retval);
+				pthread_join(thds[j], NULL);
 			}
 			free(thds);
 			break;

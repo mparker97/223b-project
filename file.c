@@ -15,12 +15,15 @@
 #include "common.h"
 #include "interval_tree.h"
 #include "zkclient.h"
+#include "pcq.h"
 
 // not const b/c discard qualifier
 char* DEFAULT_START_ORACLE = "[START ORACLE]";
 char* DEFAULT_END_ORACLE = "[END ORACLE]";
 
 char swp_dir[PATH_MAX + 1];
+struct pcq global_q;
+sem_t global_sem;
 
 static char* swap_file_path(char* src_dir, char* f_path){ // src_dir is absolute // free result
 	char* ret, *s;
@@ -209,23 +212,47 @@ fail:
 	return ret;
 }
 
-static int exec_editor(char* f_path){
+static int exec_editor_fork(struct open_files_thread* oft){
+	char** c;
+	int i, j;
+	if (!multiple_mode){
+		// squeeze in file between exe and args
+		p_exe_path[-1] = p_exe_path[0];
+		p_exe_path[0] = oft->swp_file_path;
+		p_exe_path--;
+	}
+	else{
+		c = p_exe_path;
+		p_exe_path = malloc((exe_argc + oft->i + 1) * sizeof(char*)); // plus 1 for NULL
+		if (!p_exe_path){
+			fprintf(stderr, "Failed to malloc multiple write mode argv\n");
+			return -1;
+		}
+		p_exe_path[0] = c[0];
+		for (i = 0, j = 1; i < oft->i; i++){
+			if (oft[i].rf){
+				p_exe_path[j++] = oft[i].swp_file_path;
+			}
+		}
+		memcpy(&p_exe_path[j], &c[1], exe_argc);
+	}
+	execvp(p_exe_path[0], p_exe_path);
+	return -1;
+}
+
+int exec_editor(struct open_files_thread* oft){
 	char* tmp;
 	int f = fork();
 	if (f < 0){
 		fprintf(stderr, "Fork failed\n");
-		return -1;
 	}
-	if (f == 0){
-		// squeeze in file between exe and args
-		p_exe_path[-1] = p_exe_path[0];
-		p_exe_path[0] = f_path;
-		execvp(p_exe_path[-1], &p_exe_path[-1]);
+	else if (f == 0){
+		exec_editor_fork(oft);
 		fprintf(stderr, "Failed to run executable %s\n", tmp);
-		return -1;
+		exit(1); // TODO status
 	}
 	else{
-		printf("Writing file %s from pid %d\n", f_path, f);
+		printf("Writing file %s from pid %d\n", oft->swp_file_path, f);
 		waitpid(f, NULL, 0);
 	}
 	return f;
@@ -239,37 +266,46 @@ static void* thd_open_files(void* arg){
 	swp_fd = pull_swap_file(oft->rf, &o);
 	if (swp_fd < 0){
 		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
-		goto fail;
+		goto fail_pcq;
 	}
-	if (!get_path_by_fd(path, swp_fd)){
+	else if (!get_path_by_fd(path, swp_fd)){ // FUTURE: it would be better if I could move this after the exec
 		fprintf(stderr, "Failed to resolve swap file path for %s\n", oft->rf->file_path);
-		goto fail;
+		goto fail_pcq;
 	}
-	do{
-		if (exec_editor(path) < 0){
-			goto fail;
-		}
-		i = push_swap_file(path, oft->rf, &o);
-		if (i == -1){
-			goto fail;
-		}
-	} while (i < 0);
-	//return (void*)1;
+	oft->swp_file_path = path;
+	pcq_enqueue(&global_q, oft);
+	if (multiple_mode){
+		sem_wait(&global_sem);
+		fail_check(push_swap_file(path, oft->rf, &o) >= 0);
+	}
+	else{
+		do{
+			fail_check(exec_editor(oft) >= 0);
+			i = push_swap_file(path, oft->rf, &o);
+			fail_check(i != -1);
+		} while (i < 0);
+	}
+	goto fail; // really pass
+fail_pcq:
+	pcq_enqueue(&global_q, oft);
 fail:
 	return NULL;
 }
 
 struct open_files_thread* open_files(struct range* r){
 	int i;
-	struct open_files_thread* thds = malloc(r->num_files * sizeof(struct open_files_thread));
+	struct open_files_thread* thds;
+	thds = malloc(r->num_files * sizeof(struct open_files_thread)); // free in caller
 	if (!thds){
 		fprintf(stderr, "Malloc open files threads failed\n");
 		return NULL;
 	}
 	for (i = 0; i < r->num_files; i++){
 		thds[i].rf = &r->files[i];
+		thds[i].swp_file_path = NULL;
+		thds[i].i = i;
 		if (pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i])){
-			thds[i].rf = NULL; // indicate failed pthread_create
+			pcq_enqueue(&global_q, &thds[i]);
 		}
 	}
 	return thds;

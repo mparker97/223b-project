@@ -58,8 +58,10 @@ do { \
 		(buf)[TAB_OUT_BUF_LEN] = 0; \
 	} while (0)
 
-extern char** p_exe_path;
 extern pthread_mutex_t print_lock;
+extern char** p_exe_path;
+extern int exe_argc;
+extern int multiple_mode;
 #include "sql.h"
 #include "range.h"
 
