@@ -2,6 +2,7 @@
 *.o
 223b
 nosql/*.o
+nosql/*.swp
 nosql/223b
 nosql/bo
 nosql/ranges
