@@ -133,6 +133,7 @@ static const char* QUERY_RESIZE_FILE[] = {
 };
 
 static MYSQL mysql;
+pthread_mutex_t sqlmutex;
 
 int sql_init(){
 	/* mysql_init does this
@@ -482,6 +483,7 @@ pass:
 int query_resize_file(struct range_file* rf, struct oracles* o, int swp_fd){
 	#define NUM_STMT 5
 	#define NUM_BIND 5
+	pthread_mutex_lock(&(sqlmutex));
 	int ret = 0, i = 0, unlock = 0, succ;
 	MYSQL_STMT* stmt[NUM_STMT];
 	MYSQL_BIND bind[NUM_BIND];
@@ -552,6 +554,7 @@ pass:
 	if (ou)
 		free(ou);
 	close_stmts(stmt, NUM_STMT);
+       	pthread_mutex_unlock(&(sqlmutex));
 	return ret;
 	#undef NUM_BIND
 	#undef NUM_STMT
