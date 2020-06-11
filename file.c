@@ -233,7 +233,7 @@ static int exec_editor_fork(struct open_files_thread* oft){
 				p_exe_path[j++] = oft[i].swp_file_path;
 			}
 		}
-		memcpy(&p_exe_path[j], &c[1], exe_argc);
+		memcpy(&p_exe_path[j], &c[1], exe_argc * sizeof(char*));
 	}
 	execvp(p_exe_path[0], p_exe_path);
 	return -1;
