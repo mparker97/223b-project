@@ -83,6 +83,7 @@ void opts(int argc, char* argv[]){
 	err_out(!getcwd(swp_dir, PATH_MAX)
 		|| pthread_mutex_init(&print_lock, NULL)
 		|| options_file_init() < 0
+		|| mysql_library_init(0, NULL, NULL) != 0
 		|| sql_init() < 0
 		|| zkclient_init() < 0,
 		"Failed to initialize\n");
