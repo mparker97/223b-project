@@ -20,6 +20,7 @@ int multiple_mode;
 struct range global_r;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
+pthread_mutex_t sqlmutex;
 char** p_exe_path;
 int exe_argc;
 
@@ -42,7 +43,11 @@ void* thd_prange(void* arg){
 	char* name = (char*)arg;
 	char* null_p = NULL;
 	if (range_init(&r, name) >= 0){
-		if (query_select_named_range(&r, &null_p, 0) >= 0){
+		pthread_mutex_lock(&(sqlmutex));
+		int temp = query_select_named_range(&r, &null_p, 0);
+       		pthread_mutex_unlock(&(sqlmutex));
+		
+		if ( temp >= 0){
 			do_print_range(&r);
 		}
 		else{
@@ -57,7 +62,10 @@ void* thd_pfile(void* arg){
 	struct range_file rf;
 	char* name = (char*)arg;
 	it_init(&rf.it);
-	if (query_select_file_intervals(&rf, name, ID_NONE) >= 0){
+	pthread_mutex_lock(&(sqlmutex));
+	int temp = query_select_file_intervals(&rf, name, ID_NONE);
+       	pthread_mutex_unlock(&(sqlmutex));
+	if ( temp >= 0){
 		do_print_file(&rf);
 	}
 	else{
@@ -81,6 +89,7 @@ void opts(int argc, char* argv[]){
 	}
 	// if not help, do init
 	err_out(!getcwd(swp_dir, PATH_MAX)
+		|| pthread_mutex_init(&(sqlmutex), NULL)
 		|| pthread_mutex_init(&print_lock, NULL)
 		|| options_file_init() < 0
 		|| sql_init() < 0

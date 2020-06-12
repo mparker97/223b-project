@@ -24,6 +24,7 @@ char* DEFAULT_END_ORACLE = "[END ORACLE]";
 char swp_dir[PATH_MAX + 1];
 struct pcq global_qp, global_qc;
 
+
 static void swap_file_path(char* swp_path, char* src_dir, char* f_path){ // src_dir is absolute // free result
 	char* s = strrchr(f_path, '/');
 	if (!s)
