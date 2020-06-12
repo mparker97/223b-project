@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <mysql/mysql.h>
 #include "options.h"
 #include "file.h"
 #include "sql.h"
@@ -16,10 +17,13 @@
 #define foreach_optarg(argc, argv) for (; optind < (argc) && (argv)[optind][0] != '-'; optind++)
 
 extern char swp_dir[PATH_MAX + 1];
+int multiple_mode;
 struct range global_r;
 struct range_file global_rf;
 pthread_mutex_t print_lock;
 char** p_exe_path;
+int exe_argc;
+int mode;
 
 void get_range(size_t* base, size_t* bound, char* str){
 	*base = atol(str);
@@ -36,11 +40,13 @@ void get_range(size_t* base, size_t* bound, char* str){
 }
 
 void* thd_prange(void* arg){
+	MYSQL mysql;
 	struct range r;
 	char* name = (char*)arg;
 	char* null_p = NULL;
+	fail_check(sql_init(&mysql) >= 0);
 	if (range_init(&r, name) >= 0){
-		if (query_select_named_range(&r, &null_p, 0) >= 0){
+		if (query_select_named_range(&mysql, &r, &null_p, 0) >= 0){
 			do_print_range(&r);
 		}
 		else{
@@ -48,20 +54,26 @@ void* thd_prange(void* arg){
 		}
 		range_deinit(&r);
 	}
+	sql_deinit(&mysql, 1);
+fail:
 	return NULL;
 }
 
 void* thd_pfile(void* arg){
+	MYSQL mysql;
 	struct range_file rf;
 	char* name = (char*)arg;
+	fail_check(sql_init(&mysql) >= 0);
 	it_init(&rf.it);
-	if (query_select_file_intervals(&rf, name, ID_NONE) >= 0){
+	if (query_select_file_intervals(&mysql, &rf, name, ID_NONE) >= 0){
 		do_print_file(&rf);
 	}
 	else{
 		fprintf(stderr, "Unable to print file %s\n", name);
 	}
 	range_file_deinit(&rf);
+	sql_deinit(&mysql, 1);
+fail:
 	return NULL;
 }
 
@@ -69,7 +81,6 @@ void opts(int argc, char* argv[]){
 	struct range_file* rf = NULL;
 	size_t base, bound;
 	struct range_file** fs = NULL;
-	void* retval;
 	char* buf = "+f:\0+r:";
 	pthread_t* thds = NULL;
 	int i = 0, j, k, l;
@@ -82,7 +93,8 @@ void opts(int argc, char* argv[]){
 	err_out(!getcwd(swp_dir, PATH_MAX)
 		|| pthread_mutex_init(&print_lock, NULL)
 		|| options_file_init() < 0
-		|| sql_init() < 0
+		|| mysql_library_init(0, NULL, NULL) != 0
+		|| sql_init(&global_mysql) < 0
 		|| zkclient_init() < 0,
 		"Failed to initialize\n");
 	it_init(&global_rf.it);
@@ -90,15 +102,22 @@ void opts(int argc, char* argv[]){
 	switch (c){
 		case 'r': // [r]ead
 		case 'w': // [w]rite
+			mode = c;
 			err_out(range_init(&global_r, optarg) < 0, "");
 			for (; optind < argc && !strcmp(argv[optind], "-f"); optind++); // exhaust through -f
 			err_out(optind >= argc, "-%c mode requires an executable\n", c);
 			k = optind; // k is the position of first file
 			foreach_optarg(argc, argv); // exhaust through files
 			l = optind; // r is the position after last file
-			for (; optind < argc && strcmp(argv[optind], "-e"); optind++); // search for -e
+			for (; optind < argc && strcmp(argv[optind], "-e"); optind++){ // search for -e/-E
+				if (!strcmp(argv[optind], "-E")){
+					multiple_mode = 1;
+					break;
+				}
+			}
 			err_out(optind >= argc - 1, "-%c mode requires an executable\n", c);
-			p_exe_path = &argv[optind + 1];
+			p_exe_path = &argv[++optind];
+			exe_argc = argc - optind;
 			argv[l] = NULL;
 			qsort(&argv[k], l - k, sizeof(char*), p_strcmp);
 			for (i = k, j = k + 1; j < l; j++){ // remove dups
@@ -109,7 +128,7 @@ void opts(int argc, char* argv[]){
 				}
 			}
 			argv[i + 1] = NULL; // cut off after last file after removing dups
-			err_out(query_select_named_range(&global_r, &argv[k], 1) < 0, ""); // TODO: NULL means everything
+			err_out(query_select_named_range(&global_mysql, &global_r, &argv[k], 1) < 0, ""); // TODO: NULL means everything
 			break;
 		case 'n': // i[n]sert
 			err_out(range_init(&global_r, optarg) < 0, "");
@@ -170,7 +189,7 @@ skip_add_file:;
 			}
 			free(fs);
 			err_out(!i, "No file specified\n");
-			if (query_insert_named_range(&global_r) < 0){
+			if (query_insert_named_range(&global_mysql, &global_r) < 0){
 				fprintf(stderr, "Failed to insert range \"%s\"\n", global_r.name);
 			}
 			else{
@@ -207,7 +226,7 @@ skip_add_file:;
 			}
 out:
 			for (j = 0; j < i; j++){
-				pthread_join(thds[j], &retval);
+				pthread_join(thds[j], NULL);
 			}
 			free(thds);
 			break;

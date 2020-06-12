@@ -3,9 +3,10 @@
 #include <stdio.h>
 #include "common.h"
 
-#define USAGE_MESSAGE "USAGE: %s MODE [ARGS] [-e EXE_PATH [EXE_OPTIONS]]\n"
+#define USAGE_MESSAGE "USAGE: %s MODE [ARGS] [(-e)|(-E) EXE_PATH [EXE_OPTIONS]]\n"
 #define HELP_MESSAGE "\n\
 Arguments are shown using regex.\n\
+\
 	MODE: Select one of the following:\n\
 		-h\n\
 			Help: Display this text.\n\
@@ -40,13 +41,24 @@ Arguments are shown using regex.\n\
 				The -f flag gives a set of files to print.\n\
 					All intervals in each file along with their affiliated range names will be printed.\n\
 				If no argument is specified, all ranges are printed.\n\
+\
 	THE EXECUTABLE:\n\
 		An executable must be supplied for the -r and -w modes.\n\
-		Once the -e flag is encountered, all processing of ARGS stops.\n\
+		Once the -e or -E flag is encountered, all processing of ARGS stops.\n\
 		EXE_PATH is a path to the executable (text editor) to use to open the file(s).\n\
 		EXE_OPTIONS are options for this executable.\n\
-		Each file will be opened in a separate process. Unsuccessful opens will be notified via stderr.\n\
-		Changes to a file are persisted once its process terminates.\n\n\
+\
+			For -e, each file will be opened in a separate process. Unsuccessful opens will be notified via stderr.\n\
+			Changes to a file are persisted once its process terminates.\n\
+\
+			For -E, the executable is run in one process with all files passed in as arguments.\n\
+			This is essential for editors that are \"embedded\" in the terminal, such as vim, as it allows for\n\
+			these programs to run & lock ranges that span multiple files.\n\
+			For example, to edit files \"foo\", \"bar\", and \"xyzzy\" of a common range in vim, run with the flags:\n\
+\
+				-w foo bar xyzzy -E vim -p\n\
+\
+			Vim's -p option is used to display multiple files, each in its own tab.\n\n\
 "
 
 void print_usage(char* s){

@@ -38,6 +38,7 @@ do { \
 
 #define RANGE_NAME_LEN_MAX 64
 #define PATH_MAX 3072
+#define SWP_PATH_MAX (PATH_MAX + 4)
 #define ORACLE_LEN_MIN 8
 #define ORACLE_LEN_MAX 255
 #define freec(x) do{free(x); x = NULL;} while (0)
@@ -58,15 +59,19 @@ do { \
 		(buf)[TAB_OUT_BUF_LEN] = 0; \
 	} while (0)
 
-extern char** p_exe_path;
 extern pthread_mutex_t print_lock;
+extern char** p_exe_path;
+extern int exe_argc;
+extern int multiple_mode;
+extern int mode;
 #include "sql.h"
 #include "range.h"
 
 static void err(int e){
 	global_rs_deinit();
 	pthread_mutex_destroy(&print_lock);
-	sql_end();
+	sql_deinit(&global_mysql, 0);
+	mysql_library_end();
 	// other frees
 	exit(e);
 }

@@ -4,6 +4,7 @@
 #include <time.h> 
 #include <unistd.h>
 #include <pthread.h>
+#include <mysql/mysql.h>
 #include "sql.h"
 #include "interval_tree.h"
 #include "range.h"
@@ -87,12 +88,12 @@ void watcher(zhandle_t *zzh, int type, int state, const char *path,
     }
 }
 
-int zk_acquire_master_lock(it_node_t* zkcontext, struct range_file* rf, int lt){
+int zk_acquire_master_lock(MYSQL* mysql, it_node_t* zkcontext, struct range_file* rf, int lt){
 	// master read/write lock
 	zkcontext->lock_type = lt;
 	zkcontext->file_path = rf->file_path;
 	pthread_mutex_init(&(zkcontext->pmutex), NULL);
-	if (zk_acquire_lock(zkcontext) != ZOK){
+	if (zk_acquire_lock(mysql, zkcontext) != ZOK){
 		return -1;
 	}
 	if (!zkcontext->lock_acquired) {
@@ -164,7 +165,7 @@ int retry_create(char* znode, struct timespec * ts) {
     return exists;
 }
 
-int zk_acquire_lock(it_node_t *context) {
+int zk_acquire_lock(MYSQL* mysql, it_node_t *context) {
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = (.5)*1000000;
@@ -218,7 +219,7 @@ int zk_acquire_lock(it_node_t *context) {
     int count = 0;
     while (check_retry != ZOK && count < 3) {
         if (context->lock_type == LOCK_TYPE_INTERVAL) {
-            check_retry = _zk_interval_lock_operation(context, &ts);
+            check_retry = _zk_interval_lock_operation(mysql, context, &ts);
         }
         else if (context->lock_type == LOCK_TYPE_MASTER_READ) {
             check_retry = _zk_master_read_lock_operation(context, &ts);
@@ -236,13 +237,13 @@ int zk_acquire_lock(it_node_t *context) {
     return check_retry;
 }
 
-int zk_lock_intervals(struct range_file* rf){
+int zk_lock_intervals(MYSQL* mysql, struct range_file* rf){
 	struct it_node* p_itn;
 	int acquired_count = 0;
 	it_foreach(&rf->it, p_itn){
 		p_itn->file_path = rf->file_path;
 		p_itn->lock_type = LOCK_TYPE_INTERVAL;
-		if (zk_acquire_lock(p_itn) == ZOK){
+		if (zk_acquire_lock(mysql, p_itn) == ZOK){
 			if (p_itn->lock_acquired){
 				acquired_count++;
 				continue;
@@ -308,7 +309,7 @@ static int _zk_master_write_lock_operation(it_node_t *context, struct timespec *
     return _zk_determine_master_write_lock_eligibility(context, ts);
 }
 
-static int _zk_interval_lock_operation(it_node_t *context, struct timespec *ts) {
+static int _zk_interval_lock_operation(MYSQL* mysql, it_node_t *context, struct timespec *ts) {
     // 1. CREATE LOCK NODE WITH EPHEMERAL AND SEQUENCE FLAGS ON 
     // construct full lock file path: .../foo/interval/<OFFSET_ID>-<SEQUENCE>
     // 23 = 10 for "/interval/" + 1 for '\0' + 1 for '-' + 11 for offset_id number 
@@ -326,7 +327,7 @@ static int _zk_interval_lock_operation(it_node_t *context, struct timespec *ts) 
     }
     context->lock_name = getLockName(full_path);
 
-    return _zk_determine_interval_lock_eligibility(context, ts);
+    return _zk_determine_interval_lock_eligibility(mysql, context, ts);
 }
 
 static int _zk_determine_master_read_lock_eligibility(it_node_t *context, struct timespec *ts) {
@@ -438,10 +439,10 @@ static int _zk_determine_master_write_lock_eligibility(it_node_t *context, struc
     return ret;
 }
 
-static int _zk_determine_interval_lock_eligibility(it_node_t *context, struct timespec *ts) {
+static int _zk_determine_interval_lock_eligibility(MYSQL* mysql, it_node_t *context, struct timespec *ts) {
     // 2. GET CHILDREN, SHIFT INTERVALS AS NEEDED AND DISCARD THOSE NOT IN INTERVAL
     it_array_t relevant_intervals;
-    int ret = _get_sorted_shifted_relevant_intervals(context, &relevant_intervals);
+    int ret = _get_sorted_shifted_relevant_intervals(mysql, context, &relevant_intervals);
     // get children call failed in the helper function
     if (ret != ZOK) {
         return ret;
@@ -501,7 +502,7 @@ static int _zk_determine_interval_lock_eligibility(it_node_t *context, struct ti
     return ret;
 }
 
-static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t* ret_array) {
+static int _get_sorted_shifted_relevant_intervals(MYSQL* mysql, it_node_t* context, it_array_t* ret_array) {
     ret_array->array = NULL;
     ret_array->len = 0;
 
@@ -530,7 +531,7 @@ static int _get_sorted_shifted_relevant_intervals(it_node_t* context, it_array_t
     // get intervals from mysql for this file conflicting with new_interval
     struct range_file rf;
     it_init(&rf.it);
-    ret = query_select_file_intervals(&rf, context->file_path, context->id);
+    ret = query_select_file_intervals(mysql, &rf, context->file_path, context->id);
     if (ret == -1) {
         return ret;
     }    

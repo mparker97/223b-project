@@ -33,24 +33,17 @@ fail:
 	return -1;
 }
 
-int sql_init(){return 0;}
-void sql_end(){}
+MYSQL global_mysql;
 
-int query_select_named_range(struct range* r, char** files, int lock){ // range already has r->name
-	int ret = 0, i;
-	struct open_files_thread* thds;
-	void* retval;
+int sql_init(MYSQL* mysql){return 0;}
+void sql_deinit(MYSQL* mysql, int is_thread){}
+
+int query_select_named_range(MYSQL* sql, struct range* r, char** files, int lock){ // range already has r->name
+	int ret = 0;
 	fail_check(make_range(r) >= 0);
 	printf("Range constructed successfully\n");
 	
-	thds = open_files(r);
-	if (thds){
-		for (i = 0; i < r->num_files; i++){
-			if (thds[i].rf)
-				pthread_join(thds[i].thd, &retval);
-		}
-		free(thds);
-	}
+	fail_check(prepare_file_threads(r) >= 0);
 	
 	goto pass;
 fail:
@@ -59,7 +52,7 @@ pass:
 	return ret;
 }
 
-int query_select_file_intervals(struct range_file* rf, char* file_path, unsigned long cur_id){
+int query_select_file_intervals(MYSQL* sql, struct range_file* rf, char* file_path, unsigned long cur_id){
 	int ret = 0;
 	do_print_file(rf);
 	goto pass;
@@ -69,7 +62,7 @@ pass:
 	return ret;
 }
 
-int query_insert_named_range(struct range* r){
+int query_insert_named_range(MYSQL* sql, struct range* r){
 	int ret = 0;
 	do_print_range(r);
 	goto pass;
@@ -79,7 +72,7 @@ pass:
 	return ret;
 }
 
-int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct oracles* o){
+int query_resize_file(MYSQL* sql, struct range_file* rf, struct oracles* o, int swp_fd){
 	int ret = 0, i = 0, j;
 	struct it_node* r_itn;
 	struct it_node* p_itn;
@@ -94,7 +87,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 	
 	printf("\nsearching for %s\n", r.files[i].file_path);
 	for (j = 0; j < r.num_files; j++){
-		if (!strcmp(rf->file_path, r.files[i].file_path)){
+		if (!strcmp(rf->file_path, r.files[j].file_path)){
 			printf("\tfound in %s\n", rf->file_path);
 			break;
 		}
@@ -112,7 +105,7 @@ int query_resize_file(struct range_file* rf, int swp_fd, int backing_fd, struct 
 		l = l->next;
 		i++;
 	}
-	fail_check(write_offset_update(ou, rf->num_it, swp_fd, backing_fd, o) >= 0);
+	fail_check(write_offset_update(rf, ou, o, swp_fd) >= 0);
 	
 	goto pass;
 fail:

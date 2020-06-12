@@ -281,3 +281,22 @@ static char* pcq_dequeue(struct pcq* q){
 }
 
 #endif
+
+static int get_path_by_fd(char* path, int fd){
+	char buf[32];
+    snprintf(buf, 32, "/proc/self/fd/%d", fd);
+	if (realpath(buf, path)){
+		return 1;
+	}
+	return 0;
+}
+
+static void unlink_by_fd(int fd){
+	char path[PATH_MAX + 1];
+	if (!get_path_by_fd(path, fd)){
+		fprintf(stderr, "Failed to unlink fd %d\n", fd);
+	}
+	else{
+		unlink(path);
+	}
+}
