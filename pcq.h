@@ -13,7 +13,7 @@ struct pcq{
 };
 
 static int pcq_init(struct pcq* q, size_t sz){
-	if (!(q->q = malloc(sz))){
+	if (!(q->q = malloc(sz * sizeof(char*)))){
 		return -1;
 	}
 	q->sz = sz;
