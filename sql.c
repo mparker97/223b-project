@@ -274,9 +274,9 @@ int query_select_named_range(MYSQL* mysql, struct range* r, char** files, int lo
 	goto pass;
 fail_unlock:
 	// retry delete all possibly acquired interval locks
-	for (i = 0; i < r->num_files; i++){
-		zk_unlock_intervals(&r->files[i]);
-	}
+	//for (i = 0; i < r->num_files; i++){
+	//	zk_unlock_intervals(&r->files[i]);
+	//}
 fail:
 	if (!committed)
 		TXN_ROLLBACK;
