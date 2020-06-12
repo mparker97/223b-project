@@ -178,7 +178,7 @@ static int exec_editor_fork(struct open_files_thread* oft, int nr){
 		}
 		p_exe_path[0] = c[0];
 		for (i = 0, j = 1; i < nr; i++){
-			if (oft[i].thd_state == THD_STATE_OK){
+			if (oft[i].thd_state == THD_STATE_RETRY){
 				p_exe_path[j++] = oft[i].swp_file_path;
 			}
 		}
@@ -223,16 +223,27 @@ static void* thd_open_files(void* arg){
 		goto fail_pcq;
 	}
 	oft->swp_file_path = swp_path;
-	oft->thd_state = THD_STATE_OK;
+	oft->thd_state = (multiple_mode)? THD_STATE_RETRY : THD_STATE_OK;
 	__sync_synchronize();
 	pcq_enqueue(&global_qc, oft);
 	if (multiple_mode){
-		if ((size_t)pcq_dequeue(&global_qp) == 0){ // master sent fail message; abort
-			unlink(swp_path);
-		}
-		else{ // master sent ok
-			fail_check(push_swap_file(&mysql, swp_path, oft->rf, &o) >= 0);
-		}
+		do{
+			if ((size_t)pcq_dequeue(&global_qp) == 0){ // master sent fail message; abort
+				unlink(swp_path);
+				goto fail;
+			}
+			else{ // master sent ok
+				i = push_swap_file(&mysql, swp_path, oft->rf, &o);
+				if (i == 0){
+					oft->thd_state = THD_STATE_OK;
+					__sync_synchronize();
+				}
+				else if (i == -1){
+					goto fail_pcq;
+				}
+				pcq_enqueue(&global_qc, oft);
+			}
+		} while (i < 0);
 	}
 	else{
 		do{
@@ -241,14 +252,12 @@ static void* thd_open_files(void* arg){
 			fail_check(i != -1);
 		} while (i < 0);
 	}
-	goto pass;
+	goto fail; // really pass
 fail_pcq:
 	oft->thd_state = THD_STATE_TERMINATED;
 	__sync_synchronize();
 	pcq_enqueue(&global_qc, oft);
 fail:
-	oft->thd_state = THD_STATE_TERMINATED;
-pass:
 	if (si)
 		sql_deinit(&mysql, 1);
 	zk_unlock_intervals(oft->rf);
@@ -286,23 +295,44 @@ int prepare_file_threads(struct range* r){
 		for (i = num_thds = 0; i < r->num_files; i++){
 			retval = (struct open_files_thread*)pcq_dequeue(&global_qc);
 			switch (retval->thd_state){
-				case THD_STATE_OK: // thread set up successfully
-					num_thds++;
-					break;
 				case THD_STATE_TERMINATED: // thread failed during its run and terminated
 					pthread_join(retval->thd, NULL);
 					break;
 				case THD_STATE_FAILED: // thread failed to create at all
 					zk_unlock_intervals(retval->rf);
 					break;
+				default: // thread set up successfully
+					num_thds++;
 			}
 		}
 		fail_check(num_thds > 0); // feel free to fail if there are no threads
 		if (multiple_mode){
-			succ = (exec_editor(thds, r->num_files) < 0)? 0 : 1;
-			for (i = 0; i < num_thds; i++){
-				pcq_enqueue(&global_qp, succ);
-			}
+			do{
+				succ = (exec_editor(thds, r->num_files) < 0)? 0 : 1;
+				for (i = 0; i < num_thds; i++){
+					pcq_enqueue(&global_qp, succ);
+				}
+				if (succ){
+					succ = 0; // retry bool
+					for (i = 0; i < num_thds; i++){
+						retval = (struct open_files_thread*)pcq_dequeue(&global_qc);
+						switch (retval->thd_state){
+							case THD_STATE_RETRY:
+								fprintf(stderr, "RETRYING THREAD %ld\n", retval - thds);
+								succ = 1;
+								break;
+							case THD_STATE_TERMINATED:
+								fprintf(stderr, "THREAD %ld TERMINATED\n", retval - thds);
+								pthread_join(retval->thd, NULL);
+								num_thds--;
+								break;
+							default:
+								fprintf(stderr, "THREAD %ld SUCCEEDED\n", retval - thds);
+								num_thds--;
+						}
+					}
+				}
+			} while (succ);
 		}
 		for (i = 0; i < r->num_files; i++){
 			if (thds[i].thd_state == THD_STATE_OK)

@@ -483,7 +483,8 @@ int query_resize_file(MYSQL* mysql, struct range_file* rf, struct oracles* o, in
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn;
 	struct offset_update* ou = NULL;
-	unsigned long id, new_sz, db_base, db_bound, delta = 0;
+	unsigned long id, new_sz, db_base, db_bound;
+	long delta = 0;
 	char null = false, error;
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
