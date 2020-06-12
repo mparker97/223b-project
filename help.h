@@ -18,11 +18,6 @@ Arguments are shown using regex.\n\
 			Write: Open specified range for writing. Changes within the range will be persisted.\n\
 				RANGE_NAME: The name of the range to open.\n\
 				FILE_PATH: The files within that range to open.\n\
-		-n RANGE_NAME (-f FILE_PATH (OFFSET)+)+\n\
-			Insert: Open specified set of locations for inserting. Changes at these locations will be persisted.\n\
-				RANGE_NAME: The name of the range to open.\n\
-				Each -f is followed by a file path of the range and an arbitrary\n\
-					number of offsets within that file to insert.\n\
 		-g RANGE_NAME (-f (FILE_PATH)+ -r (INTERVAL)+)+\n\
 			New Range: Create a new named range.\n\
 				RANGE_NAME: The name of the range to create.\n\
