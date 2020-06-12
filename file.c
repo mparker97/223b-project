@@ -61,7 +61,7 @@ static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, struct orac
 	it_foreach(&rf->it, p_itn){
 		if (cond < 0)
 			break;
-		if (p_itn->bound == BOUND_END){
+		if (p_itn->bound > st.st_size){
 			adj_bound = st.st_size;
 		}
 		else{
@@ -107,9 +107,9 @@ int pull_swap_file(char* swp_path, struct range_file* rf, struct oracles* o){
 	fsync(swp_fd);
 	ret = 0;
 fail:
+	zk_release_lock(&zkcontext); // successfully read - release master read lock
 	if (backing_fd >= 0) {
 		close(backing_fd);
-		zk_release_lock(&zkcontext); // successfully read - release master read lock
 	}
 	if (swp_fd >= 0)
 		close(swp_fd);
@@ -121,6 +121,10 @@ int push_swap_file(MYSQL* mysql, char* swp_path, struct range_file* rf, struct o
 	struct it_node* p_itn;
 	ssize_t o_open = 0, o_close = -o->oracle_len[1];
 	
+	if (mode == 'r'){
+		ret = 0;
+		goto fail; // really pass; skipping the push
+	}
 	swp_fd = open(swp_path, O_RDWR);
 	if (swp_fd < 0){
 		fprintf(stderr, "Failed to open swap file %s\n", swp_path);
@@ -149,11 +153,10 @@ rexec:
 	swp_unlink = 0;
 	ret = -2;
 fail:
-	if (swp_fd >= 0){
-		if (swp_unlink)
-			unlink(swp_path);
+	if (swp_unlink)
+		unlink(swp_path);
+	if (swp_fd >= 0)
 		close(swp_fd);
-	}
 	return ret;
 }
 
@@ -175,7 +178,7 @@ static int exec_editor_fork(struct open_files_thread* oft, int nr){
 		}
 		p_exe_path[0] = c[0];
 		for (i = 0, j = 1; i < nr; i++){
-			if (oft[i].rf){
+			if (oft[i].thd_state == THD_STATE_OK){
 				p_exe_path[j++] = oft[i].swp_file_path;
 			}
 		}
@@ -219,12 +222,13 @@ static void* thd_open_files(void* arg){
 		fprintf(stderr, "Failed to pull file %s\n", oft->rf->file_path);
 		goto fail_pcq;
 	}
-	oft->swp_file_path = swp_path; // this action signifies success to pcq_enqueue
+	oft->swp_file_path = swp_path;
+	oft->thd_state = THD_STATE_OK;
+	__sync_synchronize();
 	pcq_enqueue(&global_qc, oft);
 	if (multiple_mode){
 		if ((size_t)pcq_dequeue(&global_qp) == 0){ // master sent fail message; abort
 			unlink(swp_path);
-			zk_unlock_intervals(oft->rf);
 		}
 		else{ // master sent ok
 			fail_check(push_swap_file(&mysql, swp_path, oft->rf, &o) >= 0);
@@ -237,12 +241,17 @@ static void* thd_open_files(void* arg){
 			fail_check(i != -1);
 		} while (i < 0);
 	}
-	goto fail; // really pass
+	goto pass;
 fail_pcq:
+	oft->thd_state = THD_STATE_TERMINATED;
+	__sync_synchronize();
 	pcq_enqueue(&global_qc, oft);
 fail:
+	oft->thd_state = THD_STATE_TERMINATED;
+pass:
 	if (si)
 		sql_deinit(&mysql, 1);
+	zk_unlock_intervals(oft->rf);
 	return NULL;
 }
 
@@ -256,8 +265,9 @@ struct open_files_thread* open_files(struct range* r){
 	}
 	for (i = 0; i < r->num_files; i++){
 		thds[i].rf = &r->files[i];
-		thds[i].swp_file_path = NULL;
 		if (pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i])){
+			thds[i].thd_state = THD_STATE_FAILED;
+			__sync_synchronize();
 			pcq_enqueue(&global_qc, &thds[i]);
 		}
 	}
@@ -276,13 +286,16 @@ int prepare_file_threads(struct range* r){
 	if (thds){
 		for (i = num_thds = 0; i < r->num_files; i++){
 			retval = (struct open_files_thread*)pcq_dequeue(&global_qc);
-			if (retval->swp_file_path){ // thread set up successfully
-				num_thds++;
-			}
-			else{ // thread failed to set up
-				zk_unlock_intervals(retval->rf);
-				retval->rf = NULL;
-				// pthread_create failure also ends up here... so I'm just going to forget about joining
+			switch (retval->thd_state){
+				case THD_STATE_OK: // thread set up successfully
+					num_thds++;
+					break;
+				case THD_STATE_TERMINATED: // thread failed during its run and terminated
+					pthread_join(retval->thd, NULL);
+					break;
+				case THD_STATE_FAILED: // thread failed to create at all
+					zk_unlock_intervals(retval->rf);
+					break;
 			}
 		}
 		fail_check(num_thds > 0); // feel free to fail if there are no threads
@@ -293,7 +306,7 @@ int prepare_file_threads(struct range* r){
 			}
 		}
 		for (i = 0; i < r->num_files; i++){
-			if (thds[i].rf)
+			if (thds[i].thd_state == THD_STATE_OK)
 				pthread_join(thds[i].thd, NULL);
 		}
 	}

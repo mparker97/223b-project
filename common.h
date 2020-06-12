@@ -63,6 +63,7 @@ extern pthread_mutex_t print_lock;
 extern char** p_exe_path;
 extern int exe_argc;
 extern int multiple_mode;
+extern int mode;
 #include "sql.h"
 #include "range.h"
 

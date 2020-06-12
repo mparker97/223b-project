@@ -6,6 +6,9 @@
 #include "common.h"
 #include "range.h"
 #include "pcq.h"
+#define THD_STATE_OK 0
+#define THD_STATE_FAILED 1
+#define THD_STATE_TERMINATED 2
 
 // not const b/c discard qualifier
 extern char* DEFAULT_START_ORACLE;
@@ -24,6 +27,7 @@ struct open_files_thread{
 	pthread_t thd;
 	struct range_file* rf;
 	char* swp_file_path;
+	int thd_state;
 };
 
 struct offset_update{

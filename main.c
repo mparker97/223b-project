@@ -23,6 +23,7 @@ struct range_file global_rf;
 pthread_mutex_t print_lock;
 char** p_exe_path;
 int exe_argc;
+int mode;
 
 void get_range(size_t* base, size_t* bound, char* str){
 	*base = atol(str);
@@ -101,6 +102,7 @@ void opts(int argc, char* argv[]){
 	switch (c){
 		case 'r': // [r]ead
 		case 'w': // [w]rite
+			mode = c;
 			err_out(range_init(&global_r, optarg) < 0, "");
 			for (; optind < argc && !strcmp(argv[optind], "-f"); optind++); // exhaust through -f
 			err_out(optind >= argc, "-%c mode requires an executable\n", c);
