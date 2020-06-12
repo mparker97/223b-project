@@ -61,7 +61,7 @@ static void add_oracles(int swp_fd, int f_fd, struct range_file* rf, struct orac
 	it_foreach(&rf->it, p_itn){
 		if (cond < 0)
 			break;
-		if (p_itn->bound == BOUND_END){
+		if (p_itn->bound > st.st_size){
 			adj_bound = st.st_size;
 		}
 		else{
