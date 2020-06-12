@@ -267,7 +267,6 @@ struct open_files_thread* open_files(struct range* r){
 		thds[i].rf = &r->files[i];
 		if (pthread_create(&thds[i].thd, NULL, thd_open_files, &thds[i])){
 			thds[i].thd_state = THD_STATE_FAILED;
-			__sync_synchronize();
 			pcq_enqueue(&global_qc, &thds[i]);
 		}
 	}
