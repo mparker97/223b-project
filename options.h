@@ -6,7 +6,7 @@
 #include <string.h>
 #include <wordexp.h>
 #include "file.h"
-#define OPTIONS_FILE "~/.whateverrc"
+#define OPTIONS_FILE "~/.oraclerc"
 //#define LN_LEN_MIN (4 + ORACLE_LEN_MIN * 2)
 
 static const char* RC_TOKENS = " \t";
