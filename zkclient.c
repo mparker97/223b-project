@@ -140,11 +140,15 @@ int zk_release_lock(it_node_t *context) {
         if (ret == ZOK || ret == ZNONODE) {
             return 0;
         }
+        // the node is already gone
+        if (ret == ZNONODE) {
+            return ZOK;
+        }
         fprintf(stderr, "not able to connect to server - giving up");
         return ZCONNECTIONLOSS;
     }
 
-    fprintf(stderr, "either parent path or lock name is NULL");
+    // fprintf(stderr, "either parent path or lock name is NULL");
 	return ZSYSTEMERROR;
 }
 

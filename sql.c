@@ -484,6 +484,7 @@ int query_resize_file(MYSQL* mysql, struct range_file* rf, struct oracles* o, in
 	struct it_node* p_itn;
 	struct offset_update* ou = NULL;
 	unsigned long id, new_sz, db_base, db_bound;
+	long delta = 0;
 	char null = false, error;
 	memset(bind, 0, NUM_BIND * sizeof(MYSQL_BIND));
 	mysql_bind_init(bind[0], MYSQL_TYPE_LONGLONG, &rf->id, sizeof(size_t), NULL, (bool*)0, true, &error); // Offset.FileId
@@ -528,10 +529,12 @@ int query_resize_file(MYSQL* mysql, struct range_file* rf, struct oracles* o, in
 			fail_check(succ != 1);
 		} while (succ != MYSQL_NO_DATA);
 		fail_check(!mysql_stmt_execute(stmt[4]));
-		ou[i].backing_start = db_base;
-		ou[i].backing_end = db_bound;
+		ou[i].backing_start = db_base - delta;
+		ou[i].backing_end = db_bound - delta;
 		ou[i].swp_start = p_itn->base;
 		ou[i].swp_end = p_itn->bound;
+		delta += new_sz;
+		delta -= (db_bound - db_base);
 		i++;
 	}
 	fail_check(write_offset_update(rf, ou, o, swp_fd) >= 0);

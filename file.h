@@ -9,6 +9,7 @@
 #define THD_STATE_OK 0
 #define THD_STATE_FAILED 1
 #define THD_STATE_TERMINATED 2
+#define THD_STATE_RETRY 3
 
 // not const b/c discard qualifier
 extern char* DEFAULT_START_ORACLE;
