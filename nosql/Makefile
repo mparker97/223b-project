@@ -21,7 +21,7 @@ CMD = -h
 RANGEID = 1
 EFLAG = -e
 
-EXEC := 223b
+EXEC := yacet
 TEXTEXEC := cat
 
 .PHONY: all exec_helper sendhs returnhs test parse parse-files byte-offsets cleanall cleanfs clean
