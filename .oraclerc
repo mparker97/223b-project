@@ -1,0 +1,3 @@
+my/file/path.txt Starting_Oracle Ending_Oracle
+filename.py "# Starting oracle\n" "# Ending oracle\n"
+*.c "/* This is the starting \"oracle\"*/" "/*This is the ending \"oracle\"*/"
