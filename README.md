@@ -5,3 +5,5 @@
 ```
 sudo apt-get install -y libmysqlclient-dev libzookeeper-mt-dev
 ```
+
+Oracles may be specified in ~/.oraclerc. See the included file for examples.
