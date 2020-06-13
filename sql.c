@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include "sql_connection.h"
 #include "file.h"
 #include "sql.h"
 #include "common.h"
@@ -138,13 +139,13 @@ int sql_init(MYSQL* mysql){
 	int ret = 0;
 	mysql_init(mysql);
 	if (!mysql_real_connect(mysql,
-		"172.31.24.95", // localhost // TODO: remote host?
-		"client", // user
-		"password", // password
-		"test", // db name
-		0, // port
-		NULL, // socket
-		0 // options
+		SQL_CONNECTION_HOST,	
+	    SQL_CONNECTION_USERNAME,
+	    SQL_CONNECTION_PASSWORD,
+	    SQL_CONNECTION_DB_NAME,
+	    SQL_CONNECTION_PORT,
+	    SQL_CONNECTION_SOCKET,
+	    SQL_CONNECTION_OPTIONS
 	)){
 		fprintf(stderr, "Mysql connection failed\n");
 		ret = -1;
@@ -200,7 +201,7 @@ int query_select_named_range(MYSQL* mysql, struct range* r, char** files, int lo
 	#define NUM_BIND 7
 	int ret = 0, i, succ, committed = 0;
 	struct range_file* rf = NULL;
-	MYSQL_STMT* stmt[NUM_STMT];
+	MYSQL_STMT* stmt[NUM_STMT] = {NULL};
 	MYSQL_BIND bind[NUM_BIND];
 	char buf[PATH_MAX + 1];
 	char old_buf[PATH_MAX + 1];
@@ -293,7 +294,7 @@ int query_select_file_intervals(MYSQL* mysql, struct range_file* rf, char* file_
 	#define NUM_STMT 3
 	#define NUM_BIND 6
 	int ret = 0, succ;
-	MYSQL_STMT* stmt[NUM_STMT];
+	MYSQL_STMT* stmt[NUM_STMT] = {NULL};
 	MYSQL_BIND bind[NUM_BIND];
 	it_node_t* cur_interval;
 	unsigned long fileId, offsetId;
@@ -398,7 +399,7 @@ int query_insert_named_range(MYSQL* mysql, struct range* r){
 	#define NUM_STMT 6
 	#define NUM_BIND 6
 	int ret = 0, i, succ;
-	MYSQL_STMT* stmt[NUM_STMT];
+	MYSQL_STMT* stmt[NUM_STMT] = {NULL};
 	MYSQL_BIND bind[NUM_BIND];
 	char buf[PATH_MAX + 1];
 	struct it_node* p_itn, itn;
@@ -479,7 +480,7 @@ int query_resize_file(MYSQL* mysql, struct range_file* rf, struct oracles* o, in
 	#define NUM_STMT 5
 	#define NUM_BIND 5
 	int ret = 0, i = 0, unlock = 0, succ;
-	MYSQL_STMT* stmt[NUM_STMT];
+	MYSQL_STMT* stmt[NUM_STMT] = {NULL};
 	MYSQL_BIND bind[NUM_BIND];
 	struct it_node* p_itn;
 	struct offset_update* ou = NULL;

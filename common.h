@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #define STR(x) #x
 
-#define _DEBUG
+//#define _DEBUG
 
 // do while (0) to allow semicolon after
 #ifdef _DEBUG

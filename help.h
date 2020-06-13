@@ -6,12 +6,12 @@
 #define USAGE_MESSAGE "USAGE: %s MODE [ARGS] [(-e)|(-E) EXE_PATH [EXE_OPTIONS]]\n"
 #define HELP_MESSAGE "\n\
 Arguments are shown using regex.\n\
-\
+\n\
 	MODE: Select one of the following:\n\
 		-h\n\
 			Help: Display this text.\n\
 		-r RANGE_NAME (-f)? (FILE_PATH)+\n\
-			Read: Open specified range for reading. No changes will be persisted.\n\n\
+			Read: Open specified range for reading. No changes will be persisted.\n\
 				RANGE_NAME: The name of the range to open.\n\
 				FILE_PATH: The files within that range to open.\n\
 		-w RANGE NAME (-f)? (FILE_PATH)+\n\
@@ -36,24 +36,35 @@ Arguments are shown using regex.\n\
 				The -f flag gives a set of files to print.\n\
 					All intervals in each file along with their affiliated range names will be printed.\n\
 				If no argument is specified, all ranges are printed.\n\
-\
+\n\
 	THE EXECUTABLE:\n\
 		An executable must be supplied for the -r and -w modes.\n\
 		Once the -e or -E flag is encountered, all processing of ARGS stops.\n\
 		EXE_PATH is a path to the executable (text editor) to use to open the file(s).\n\
 		EXE_OPTIONS are options for this executable.\n\
-\
+\n\
 			For -e, each file will be opened in a separate process. Unsuccessful opens will be notified via stderr.\n\
 			Changes to a file are persisted once its process terminates.\n\
-\
+\n\
 			For -E, the executable is run in one process with all files passed in as arguments.\n\
 			This is essential for editors that are \"embedded\" in the terminal, such as vim, as it allows for\n\
 			these programs to run & lock ranges that span multiple files.\n\
 			For example, to edit files \"foo\", \"bar\", and \"xyzzy\" of a common range in vim, run with the flags:\n\
-\
+\n\
 				-w foo bar xyzzy -E vim -p\n\
-\
-			Vim's -p option is used to display multiple files, each in its own tab.\n\n\
+\n\
+			Vim's -p option is used to display multiple files, each in its own tab.\n\
+\n\
+	ORACLES:\n\
+		Oracles are inserted to indicate interval start/end bytes.\n\
+		They may be configured via a file named \".oraclerc\" under the home directory.\n\
+			Each line has the format NAME START_ORACLE END_ORACLE.\n\
+			NAME may be a path, a file name (without a path), or an extension (e.g. *.c).\n\
+				Matching precedence is taken in that order.\n\
+			START_ORACLE and END_ORACLE may be unquoted words with no whitespace or quoted words with optional whitespace.\n\
+			It is advised to make oracles comments in that language, for example:\n\
+\n\
+				*.c \"/*Oracle Start*/\" \"/*Oracle End*/\"\n\n\
 "
 
 void print_usage(char* s){

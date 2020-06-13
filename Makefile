@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 CC := gcc
 CFLAGS := -I. -g -O3 -Wall -Wno-unused-function -Wno-unused-result
-HS := file.h options.h sql.h common.h list.h interval_tree.h range.h help.h zkclient.h pcq.h
+HS := sql_connection.h file.h options.h sql.h common.h list.h interval_tree.h range.h help.h zkclient.h pcq.h
 OS := main.o file.o sql.o interval_tree.o range.o tests.o
 LIBS := -lmysqlclient -lpthread -lzookeeper_mt
 

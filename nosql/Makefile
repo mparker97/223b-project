@@ -3,7 +3,7 @@ CC := gcc
 CFLAGS := -I. -g -O -Wall -Wno-unused-function -Wno-unused-result
 
 MAINDIR := ..
-MAINDIRHS := file.h sql.h common.h interval_tree.h range.h help.h
+MAINDIRHS := sql_connection.h file.h sql.h common.h interval_tree.h range.h help.h
 MAINDIROS := main.o file.o interval_tree.o range.o
 THISDIROS := sql.o
 THISDIRHS := zkclient.h
