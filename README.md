@@ -1,6 +1,6 @@
 # 223b-project
 
-See paper "223B-Project.pdf"
+See paper "223B_Project.pdf"
 
 ### Installation
 1. First install the required C libraries.
